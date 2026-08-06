@@ -47,6 +47,12 @@
 
       <dt id="3vl"><strong>Three-valued logic (3VL)</strong></dt>
       <dd>SQL truth values: <code>TRUE</code>, <code>FALSE</code>, <code>UNKNOWN</code>. <code>NULL</code> comparisons yield <code>UNKNOWN</code>; <code>WHERE</code> keeps only <code>TRUE</code>.</dd>
+
+      <dt id="logical-order"><strong>Logical processing order</strong></dt>
+      <dd>The order clauses are bound / conceptually applied when building a result — not the order you type them. Typical map: <code>FROM</code>/<code>JOIN</code> → <code>WHERE</code> → <code>GROUP BY</code> → <code>HAVING</code> → <code>SELECT</code> → <code>DISTINCT</code> → <code>ORDER BY</code> → limit. Explains why SELECT aliases are invisible in <code>WHERE</code>.</dd>
+
+      <dt id="having"><strong>HAVING</strong></dt>
+      <dd>Filter on <em>groups</em> after <code>GROUP BY</code>. Can use aggregates. Contrast <code>WHERE</code>, which filters rows before grouping.</dd>
     </dl>
 
     <footer class="site">

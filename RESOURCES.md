@@ -20,6 +20,8 @@
   Official Spark SQL/DataFrame tuning. Use for: join strategies, AQE, caching, statistics—Glue jobs live here.
 - [SQL and the Snare of Three-Valued Logic — Simple Talk](https://www.red-gate.com/simple-talk/databases/sql-server/learn/sql-and-the-snare-of-three-valued-logic/)
   Long-form NULL/3VL with practical examples. Use for: deeper practice after the modern-sql page.
+- [SELECT (Transact-SQL) — Logical processing order (Microsoft Learn)](https://learn.microsoft.com/en-us/sql/t-sql/queries/select-transact-sql)
+  Canonical numbered binding order for SELECT clauses. Use for: why aliases fail in WHERE, WHERE vs HAVING, reading complex queries. Physical plans may differ; result must match this logic.
 
 ## Wisdom (Communities)
 

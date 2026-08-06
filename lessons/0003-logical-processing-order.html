@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lesson 0003 — Logical processing order</title>
+  <link rel="stylesheet" href="../assets/lesson.css" />
+  <script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <p class="kicker">Lesson 0003 · Reading complex SQL</p>
+      <h1>Logical processing order</h1>
+      <p class="lead">
+        You write <code>SELECT</code> first. The engine does not think that way.
+        Wrong mental order → “invalid column” errors, bad filters, and
+        misread production queries.
+      </p>
+    </header>
+
+    <p>
+      Mission: read and fix multi-clause SQL on Redshift / Spark / Aurora.
+      This lesson is the map for <em>any</em> engine’s <code>SELECT</code>.
+      Builds on
+      <a href="0001-join-fanout-wrong-results.html">fan-out</a> (join before aggregate)
+      and
+      <a href="0002-null-three-valued-logic.html">3VL</a> (when filters apply).
+    </p>
+
+    <h2>Skill for this lesson</h2>
+    <p>
+      Trace a query in
+      <a href="../reference/glossary.html#logical-order">logical order</a>
+      and predict: which names exist at each step, what grain the rows have,
+      and whether a filter is row-level or group-level.
+    </p>
+
+    <h2>Written order ≠ logical order</h2>
+    <p>How people type a query:</p>
+    <pre><code>SELECT … FROM … WHERE … GROUP BY … HAVING … ORDER BY …</code></pre>
+
+    <p>How SQL <em>logically</em> builds the result (binding / processing order):</p>
+    <ol>
+      <li><code>FROM</code> / <code>JOIN</code> / <code>ON</code> — build the working row set</li>
+      <li><code>WHERE</code> — keep rows where predicate is TRUE</li>
+      <li><code>GROUP BY</code> — collapse to groups</li>
+      <li><code>HAVING</code> — keep groups where predicate is TRUE</li>
+      <li><code>SELECT</code> — compute output expressions / aliases</li>
+      <li><code>DISTINCT</code> — drop duplicate output rows</li>
+      <li><code>ORDER BY</code> — sort</li>
+      <li>Limit / <code>TOP</code> / <code>OFFSET … FETCH</code> / engine <code>LIMIT</code></li>
+    </ol>
+
+    <div class="note">
+      <p>
+        Microsoft documents this as the logical processing (binding) order of
+        <code>SELECT</code>: <code>FROM</code> → <code>ON</code> → <code>JOIN</code> →
+        <code>WHERE</code> → <code>GROUP BY</code> → <code>HAVING</code> →
+        <code>SELECT</code> → <code>DISTINCT</code> → <code>ORDER BY</code> → <code>TOP</code>.
+      </p>
+      <p class="cite">
+        Primary source:
+        <a href="https://learn.microsoft.com/en-us/sql/t-sql/queries/select-transact-sql">SELECT (Transact-SQL) — Logical processing order</a>.
+        Physical plans may reorder work for speed; the <em>result</em> must match this logic.
+      </p>
+    </div>
+
+    <h2>Why this bites in production</h2>
+
+    <h3>1. SELECT aliases do not exist in WHERE</h3>
+    <pre><code>-- Error (or wrong engine): revenue not defined yet
+SELECT amount * qty AS revenue
+FROM order_items
+WHERE revenue &gt; 100;</code></pre>
+    <p>
+      <code>WHERE</code> runs before <code>SELECT</code>. Alias <code>revenue</code> is not born yet.
+    </p>
+    <pre><code>-- Repeat expression, or filter later
+SELECT amount * qty AS revenue
+FROM order_items
+WHERE amount * qty &gt; 100;
+
+-- Or wrap
+SELECT *
+FROM (
+  SELECT amount * qty AS revenue
+  FROM order_items
+) x
+WHERE revenue &gt; 100;</code></pre>
+    <p>
+      Many engines allow the alias in <code>ORDER BY</code> (and sometimes <code>GROUP BY</code> / <code>HAVING</code>)
+      because those steps are at or after <code>SELECT</code>. Do not assume every dialect is the same — when unsure, repeat the expression or use a subquery/CTE.
+    </p>
+
+    <h3>2. WHERE filters rows; HAVING filters groups</h3>
+    <pre><code>SELECT customer_id, SUM(amount) AS total
+FROM orders
+WHERE status = 'paid'          -- row filter (before group)
+GROUP BY customer_id
+HAVING SUM(amount) &gt; 1000;     -- group filter (after group)</code></pre>
+    <table>
+      <thead>
+        <tr><th>Clause</th><th>Sees</th><th>Can use aggregates?</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>WHERE</code></td>
+          <td>Individual rows after join</td>
+          <td>No (<code>SUM</code> not computed yet)</td>
+        </tr>
+        <tr>
+          <td><code>HAVING</code></td>
+          <td>Groups</td>
+          <td>Yes</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      Put non-aggregate filters in <code>WHERE</code> when possible (smaller set before grouping).
+      Use <code>HAVING</code> for conditions on the aggregate result.
+    </p>
+
+    <h3>3. JOIN (and fan-out) happen before WHERE and aggregates</h3>
+    <p>
+      From lesson 1: the join builds an intermediate set first.
+      Then <code>WHERE</code>, then <code>GROUP BY</code>/<code>SUM</code>.
+      That is why inflated join rows poison totals — multiplication is step 1 of the map.
+    </p>
+
+    <h3>4. LEFT JOIN + WHERE on the right table</h3>
+    <pre><code>SELECT o.id, i.sku
+FROM orders o
+LEFT JOIN order_items i ON i.order_id = o.order_id
+WHERE i.sku = 'A';</code></pre>
+    <p>
+      Logically: outer join produces rows (with NULL right sides), then
+      <code>WHERE i.sku = 'A'</code> rejects NULL right sides (lesson 2: UNKNOWN fails WHERE).
+      Effect often becomes an inner join. If you meant “only match item A, keep orders without it,”
+      put the item filter in <code>ON</code>:
+    </p>
+    <pre><code>LEFT JOIN order_items i
+  ON i.order_id = o.order_id
+ AND i.sku = 'A'</code></pre>
+
+    <h2>Walk one query (grain at each step)</h2>
+    <pre><code>SELECT o.customer_id,
+       COUNT(*) AS paid_orders
+FROM orders o
+JOIN customers c ON c.id = o.customer_id
+WHERE o.status = 'paid'
+GROUP BY o.customer_id
+HAVING COUNT(*) &gt;= 2
+ORDER BY paid_orders DESC;</code></pre>
+    <ol>
+      <li><strong>FROM/JOIN</strong> — grain: one row per (order, matching customer)</li>
+      <li><strong>WHERE</strong> — drop non-paid orders</li>
+      <li><strong>GROUP BY</strong> — grain: one row per customer</li>
+      <li><strong>HAVING</strong> — drop customers with fewer than 2 paid orders</li>
+      <li><strong>SELECT</strong> — shape columns; alias <code>paid_orders</code> appears</li>
+      <li><strong>ORDER BY</strong> — sort (alias OK on most engines)</li>
+    </ol>
+
+    <h2>CTEs fit the same map</h2>
+    <pre><code>WITH paid AS (
+  SELECT customer_id, amount
+  FROM orders
+  WHERE status = 'paid'
+)
+SELECT customer_id, SUM(amount) AS total
+FROM paid
+GROUP BY customer_id;</code></pre>
+    <p>
+      Each CTE is its own logical <code>SELECT</code>. Outer query only sees the CTE’s
+      <em>result</em> columns. Use CTEs to name intermediate grain (lesson 1 fix patterns).
+    </p>
+
+    <h2>Check habit (10 seconds)</h2>
+    <ol>
+      <li>Walk the query: join → where → group → having → select → order</li>
+      <li>At each step: what is one row?</li>
+      <li>Alias used before <code>SELECT</code>? → illegal or dialect luck — rewrite</li>
+      <li>Aggregate in <code>WHERE</code>? → move to <code>HAVING</code> or subquery</li>
+      <li>Filter on right of <code>LEFT JOIN</code> in <code>WHERE</code>? → confirm intent</li>
+    </ol>
+
+    <h2>Practice</h2>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Correct. WHERE is before SELECT, so the alias is not defined yet."
+         data-no="Logical order: WHERE runs before SELECT aliases are created.">
+      <h3>Q1. Why can this fail?</h3>
+      <pre><code>SELECT price * qty AS line_total
+FROM lines
+WHERE line_total &gt; 50;</code></pre>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Alias born in SELECT; WHERE runs earlier</button></li>
+        <li><button type="button" class="choice" data-i="1">Alias born in WHERE; SELECT runs earlier</button></li>
+        <li><button type="button" class="choice" data-i="2">Alias needs GROUP BY before any filter</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="1"
+         data-ok="Yes. HAVING filters groups after aggregation; WHERE cannot see SUM yet."
+         data-no="Aggregates exist only after GROUP BY — that is HAVING’s job.">
+      <h3>Q2. Filter customers with SUM(amount) &gt; 1000?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Use WHERE SUM(amount) after FROM only</button></li>
+        <li><button type="button" class="choice" data-i="1">Use HAVING SUM(amount) after GROUP BY</button></li>
+        <li><button type="button" class="choice" data-i="2">Use ORDER BY SUM(amount) as the filter</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="2"
+         data-ok="Yes. WHERE after LEFT JOIN drops unmatched left rows when right columns are NULL."
+         data-no="Think 3VL: WHERE right.col = x rejects NULL right sides.">
+      <h3>Q3. LEFT JOIN then WHERE on right table column?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Keeps all left rows; right filter is ignored</button></li>
+        <li><button type="button" class="choice" data-i="1">Errors always; WHERE cannot see join columns</button></li>
+        <li><button type="button" class="choice" data-i="2">Often acts like INNER JOIN on that match</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Correct. Logical order starts with FROM/JOIN — grain and fan-out first."
+         data-no="SELECT is written first but processed late; start from FROM/JOIN.">
+      <h3>Q4. First step when reading a complex SELECT?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">FROM/JOIN: what is one working row?</button></li>
+        <li><button type="button" class="choice" data-i="1">SELECT list: rename columns first always</button></li>
+        <li><button type="button" class="choice" data-i="2">ORDER BY: check sort keys before joins</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <h2>Primary source (read ~10 min)</h2>
+    <p>
+      <a href="https://learn.microsoft.com/en-us/sql/t-sql/queries/select-transact-sql">Microsoft Learn — SELECT (Transact-SQL)</a>,
+      section <em>Logical processing order of the SELECT statement</em>.
+      Read the numbered list and the note that physical order may differ.
+    </p>
+
+    <h2>Done when</h2>
+    <ul>
+      <li>You can recite: join → where → group → having → select → order</li>
+      <li>You know why SELECT aliases fail in WHERE</li>
+      <li>You choose WHERE vs HAVING on purpose</li>
+    </ul>
+
+    <footer class="site">
+      <p><strong>Ask follow-ups.</strong> Paste a multi-clause query — we walk it step by step.</p>
+      <p>Next candidates: sargable predicates / pushdown · EXPLAIN basics · Redshift dist·sort + Spark shuffle.</p>
+      <ul>
+        <li><a href="0002-null-three-valued-logic.html">← Lesson 0002 (NULL / 3VL)</a></li>
+        <li><a href="0001-join-fanout-wrong-results.html">← Lesson 0001 (fan-out)</a></li>
+        <li><a href="../reference/glossary.html">Glossary</a></li>
+        <li><a href="../MISSION.md">Mission</a></li>
+        <li><a href="../RESOURCES.md">Resources</a></li>
+      </ul>
+    </footer>
+  </div>
+</body>
+</html>
