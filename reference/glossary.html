@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Glossary — SQL Study</title>
+  <link rel="stylesheet" href="../assets/lesson.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <p class="kicker">Reference</p>
+      <h1>Glossary</h1>
+      <p class="lead">Shared terms for every lesson. Prefer these words when talking about queries.</p>
+    </header>
+
+    <dl>
+      <dt id="grain"><strong>Grain</strong></dt>
+      <dd>What one row in a result (or table) represents. Example: “one row per order” vs “one row per order line.” Wrong grain is the root of many wrong totals.</dd>
+
+      <dt id="fan-out"><strong>Fan-out</strong> (join multiplication)</dt>
+      <dd>A join that matches one left row to many right rows, multiplying rows before later steps (especially <code>SUM</code>/<code>COUNT</code>). Results look “inflated,” not always empty or errored.</dd>
+
+      <dt id="predicate"><strong>Predicate</strong></dt>
+      <dd>A boolean condition in <code>WHERE</code>, <code>JOIN … ON</code>, or <code>HAVING</code> that filters or matches rows.</dd>
+
+      <dt id="sargable"><strong>Sargable</strong></dt>
+      <dd>A predicate the engine can use efficiently with an index or ordered/partitioned layout (e.g. <code>col = ?</code>, <code>col &gt;= ?</code>). Wrapping the column in a function often kills this.</dd>
+
+      <dt id="plan"><strong>Plan</strong> (query plan / execution plan)</dt>
+      <dd>The steps the engine chose: scans, joins, aggregates, shuffles. Inspected with <code>EXPLAIN</code> (wording varies by engine).</dd>
+
+      <dt id="scan"><strong>Scan</strong></dt>
+      <dd>Reading many rows/blocks/files to find matches. Not always bad—but full scans on huge tables are the first place to look when something is slow.</dd>
+
+      <dt id="selective"><strong>Selectivity</strong></dt>
+      <dd>How much a predicate shrinks the set. Highly selective filters (few rows match) are gold for performance when the engine can apply them early.</dd>
+
+      <dt id="shuffle"><strong>Shuffle</strong> (Spark / distributed)</dt>
+      <dd>Redistributing data across workers so a join or aggregation can complete. Often the expensive part of Spark SQL / Glue jobs.</dd>
+
+      <dt id="dist-key"><strong>Distribution key</strong> (Redshift)</dt>
+      <dd>How rows are placed across nodes. Join/group on the same dist key reduces data movement.</dd>
+
+      <dt id="sort-key"><strong>Sort key</strong> (Redshift)</dt>
+      <dd>Physical row order on disk. Range predicates and some aggregates use it to skip blocks.</dd>
+
+      <dt id="3vl"><strong>Three-valued logic (3VL)</strong></dt>
+      <dd>SQL truth values: <code>TRUE</code>, <code>FALSE</code>, <code>UNKNOWN</code>. <code>NULL</code> comparisons yield <code>UNKNOWN</code>; <code>WHERE</code> keeps only <code>TRUE</code>.</dd>
+    </dl>
+
+    <footer class="site">
+      <p>Linked from lessons as terms appear. Ask the agent to add a term when something keeps coming up.</p>
+    </footer>
+  </div>
+</body>
+</html>

@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lesson 0001 — Join fan-out and wrong totals</title>
+  <link rel="stylesheet" href="../assets/lesson.css" />
+  <script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <p class="kicker">Lesson 0001 · Correctness first</p>
+      <h1>Join fan-out: silent wrong totals</h1>
+      <p class="lead">
+        Production bug pattern #1: the query returns rows, the numbers look “almost right,”
+        and <code>SUM</code> is quietly inflated because a join multiplied rows.
+      </p>
+    </header>
+
+    <p>
+      Mission link: you will <strong>write and fix</strong> production SQL on Redshift / Spark / Aurora.
+      Slow queries matter. <em>Wrong</em> queries matter more. Fan-out is how correct-looking SQL lies.
+    </p>
+
+    <h2>Skill for this lesson</h2>
+    <p>
+      Before you trust a total, state the <a href="../reference/glossary.html#grain">grain</a>
+      of every table in the join and check whether the join can
+      <a href="../reference/glossary.html#fan-out">fan out</a> a row you planned to sum once.
+    </p>
+
+    <h2>Tiny dataset</h2>
+    <p><code>orders</code> — grain: <strong>one row per order</strong></p>
+    <table>
+      <thead><tr><th>order_id</th><th>customer_id</th><th>amount</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>10</td><td>100</td></tr>
+        <tr><td>2</td><td>10</td><td>50</td></tr>
+      </tbody>
+    </table>
+
+    <p><code>order_items</code> — grain: <strong>one row per line on an order</strong></p>
+    <table>
+      <thead><tr><th>order_id</th><th>sku</th><th>qty</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>A</td><td>2</td></tr>
+        <tr><td>1</td><td>B</td><td>1</td></tr>
+        <tr><td>2</td><td>A</td><td>1</td></tr>
+      </tbody>
+    </table>
+
+    <p>True revenue of all orders: <code>100 + 50 = 150</code>.</p>
+
+    <h2>The trap</h2>
+    <pre><code>SELECT SUM(o.amount) AS revenue
+FROM orders o
+JOIN order_items i ON i.order_id = o.order_id;</code></pre>
+
+    <p>What does the join produce <em>before</em> <code>SUM</code>?</p>
+    <table>
+      <thead><tr><th>order_id</th><th>amount</th><th>sku</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>100</td><td>A</td></tr>
+        <tr><td>1</td><td>100</td><td>B</td></tr>
+        <tr><td>2</td><td>50</td><td>A</td></tr>
+      </tbody>
+    </table>
+
+    <p>
+      <code>SUM(amount)</code> = <code>100 + 100 + 50 = 250</code>.
+      No error. No empty set. Just a lie. Order 1’s amount was counted once per line item.
+    </p>
+
+    <div class="note">
+      <p><strong>Rule:</strong> You may only <code>SUM</code>/<code>COUNT</code> a column at the grain it is defined at—unless you re-aggregate first.</p>
+      <p class="cite">
+        Related: joins combine tables two at a time into intermediate results; wrong intermediate grain poisons later steps.
+        See Markus Winand on <a href="https://use-the-index-luke.com/sql/join">the join operation</a>.
+        Redshift also warns against accidental cross-joins and uncontrolled cartesian products in
+        <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_designing-queries-best-practices.html">query design best practices</a>.
+      </p>
+    </div>
+
+    <h2>Three safe patterns</h2>
+
+    <h3>1. Aggregate the fine table first</h3>
+    <pre><code>SELECT SUM(o.amount) AS revenue
+FROM orders o
+JOIN (
+  SELECT order_id
+  FROM order_items
+  GROUP BY order_id
+) i ON i.order_id = o.order_id;</code></pre>
+    <p>Here the join is 1:1 to orders that have items. Amount is still at order grain.</p>
+
+    <h3>2. Don’t join if you only need “has items”</h3>
+    <pre><code>SELECT SUM(o.amount) AS revenue
+FROM orders o
+WHERE EXISTS (
+  SELECT 1 FROM order_items i WHERE i.order_id = o.order_id
+);</code></pre>
+
+    <h3>3. Sum at the grain you joined to</h3>
+    <pre><code>-- If the question is "total qty shipped", sum items, not order.amount
+SELECT SUM(i.qty) AS units
+FROM order_items i
+JOIN orders o ON o.order_id = i.order_id
+WHERE o.customer_id = 10;</code></pre>
+
+    <h2>Check habit (10 seconds)</h2>
+    <ol>
+      <li>What is one row of each input table?</li>
+      <li>After this join, what is one row?</li>
+      <li>Am I aggregating a column defined at a coarser grain than the join result?</li>
+    </ol>
+    <p>If (3) is yes → fan-out risk. Fix grain before tuning performance.</p>
+
+    <h2>Practice</h2>
+
+    <div class="quiz"
+         data-answer="1"
+         data-ok="Yes. Order amount is order-grain; the join is item-grain. SUM multiplies amount by line count."
+         data-no="Re-read the intermediate join table. amount from orders is repeated once per item line.">
+      <h3>Q1. Does this query risk wrong revenue?</h3>
+      <pre><code>SELECT customer_id, SUM(amount)
+FROM orders o
+JOIN order_items i USING (order_id)
+GROUP BY customer_id;</code></pre>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Amount safe after GROUP BY customer_id</button></li>
+        <li><button type="button" class="choice" data-i="1">Amount inflated by item row fan-out</button></li>
+        <li><button type="button" class="choice" data-i="2">Amount safe because INNER JOIN filters</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="2"
+         data-ok="Correct. Aggregate or EXISTS first so order rows stay unique before SUM(amount)."
+         data-no="Think about which step restores order grain before summing amount.">
+      <h3>Q2. Safest fix for “revenue for orders that have items”?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Use DISTINCT amount in the SELECT list only</button></li>
+        <li><button type="button" class="choice" data-i="1">Use LEFT JOIN then still SUM order amount</button></li>
+        <li><button type="button" class="choice" data-i="2">Pre-aggregate items first or use EXISTS path</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Yes. One result row means one (order, item) pair — not one order."
+         data-no="Count the rows for order_id 1 in the join result: two lines, same amount.">
+      <h3>Q3. Grain of the join result orders ⋈ order_items?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">One row per order line (item grain)</button></li>
+        <li><button type="button" class="choice" data-i="1">One row per order only (order grain)</button></li>
+        <li><button type="button" class="choice" data-i="2">One row per customer only (buyer grain)</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <h2>Primary source (read ~15 min)</h2>
+    <p>
+      <a href="https://use-the-index-luke.com/sql/join">Use The Index, Luke — The Join Operation</a>
+      (Markus Winand). Focus on: joins build intermediate results two tables at a time; performance and correctness both live in those intermediates.
+    </p>
+    <p class="cite">
+      Stack backup for warehouse SQL:
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_designing-queries-best-practices.html">Redshift query design best practices</a>
+      (cross-joins, predicates, avoid needless row explosion).
+    </p>
+
+    <h2>Done when</h2>
+    <ul>
+      <li>You can explain why <code>SUM(order.amount)</code> after joining items is dangerous.</li>
+      <li>You have one default fix (pre-aggregate / EXISTS / sum at correct grain).</li>
+      <li>You ask “what is one row?” before “is this slow?”</li>
+    </ul>
+
+    <footer class="site">
+      <p><strong>Ask follow-ups.</strong> Stuck on a real query from your project? Paste it here—grain first, then speed.</p>
+      <p>Next candidates: NULL / three-valued logic · reading SQL logical order · predicates engines can use.</p>
+      <ul>
+        <li><a href="../reference/glossary.html">Glossary</a></li>
+        <li><a href="../MISSION.md">Mission</a></li>
+        <li><a href="../RESOURCES.md">Resources</a></li>
+      </ul>
+    </footer>
+  </div>
+</body>
+</html>
