@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lesson 0002 — NULL and three-valued logic</title>
+  <link rel="stylesheet" href="../assets/lesson.css" />
+  <script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <p class="kicker">Lesson 0002 · Correctness</p>
+      <h1>NULL and three-valued logic</h1>
+      <p class="lead">
+        Production bug pattern #2: filters and <code>NOT IN</code> that look right
+        but drop (or keep) rows because SQL is not true/false only.
+      </p>
+    </header>
+
+    <p>
+      After <a href="0001-join-fanout-wrong-results.html">fan-out</a>, the next silent wrong-result class is
+      <a href="../reference/glossary.html#3vl">three-valued logic (3VL)</a>.
+      Same engines you will touch (Spark SQL, Redshift, Aurora) all follow this model for core predicates.
+    </p>
+
+    <h2>Skill for this lesson</h2>
+    <p>
+      Read a predicate and say whether each comparison is
+      <strong>TRUE</strong>, <strong>FALSE</strong>, or <strong>UNKNOWN</strong> —
+      then remember: <code>WHERE</code> keeps only <strong>TRUE</strong>.
+    </p>
+
+    <h2>NULL is not a value</h2>
+    <p>
+      <code>NULL</code> means <em>absent / unknown</em> — “could be anything.”
+      So most comparisons with <code>NULL</code> are not true or false; they are
+      <strong>UNKNOWN</strong>.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>Expression</th><th>Result</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>NULL = 1</code></td><td>UNKNOWN</td></tr>
+        <tr><td><code>NULL &lt;&gt; 1</code></td><td>UNKNOWN</td></tr>
+        <tr><td><code>NULL = NULL</code></td><td>UNKNOWN</td></tr>
+        <tr><td><code>NULL IS NULL</code></td><td>TRUE</td></tr>
+        <tr><td><code>NULL IS NOT NULL</code></td><td>FALSE</td></tr>
+      </tbody>
+    </table>
+
+    <div class="note">
+      <p><strong>Never write</strong> <code>col = NULL</code> or <code>col != NULL</code>.</p>
+      <p><strong>Write</strong> <code>col IS NULL</code> / <code>col IS NOT NULL</code>.</p>
+      <p class="cite">
+        Source:
+        <a href="https://modern-sql.com/concept/three-valued-logic">Modern SQL — Three-Valued Logic</a>
+        (Markus Winand). Nothing equals <code>null</code>; not even <code>null</code>.
+      </p>
+    </div>
+
+    <h2>WHERE keeps only TRUE</h2>
+    <p>
+      For <code>WHERE</code>, <code>HAVING</code>, <code>JOIN … ON</code>, and <code>CASE WHEN</code>:
+      the row (or branch) is taken only when the condition is <strong>TRUE</strong>.
+      <strong>FALSE</strong> and <strong>UNKNOWN</strong> both fail the filter.
+    </p>
+
+    <pre><code>-- Always empty: comparison to NULL is UNKNOWN for every row
+SELECT *
+FROM t
+WHERE col = NULL;</code></pre>
+
+    <pre><code>-- Rows where col is missing
+SELECT *
+FROM t
+WHERE col IS NULL;</code></pre>
+
+    <h2>AND / OR with UNKNOWN</h2>
+    <p>Think: result is UNKNOWN only if it still <em>depends</em> on the unknown part.</p>
+    <table>
+      <thead>
+        <tr><th>Expression</th><th>Result</th><th>Why</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>UNKNOWN OR TRUE</code></td>
+          <td>TRUE</td>
+          <td>OR already has a TRUE</td>
+        </tr>
+        <tr>
+          <td><code>UNKNOWN AND FALSE</code></td>
+          <td>FALSE</td>
+          <td>AND already has a FALSE</td>
+        </tr>
+        <tr>
+          <td><code>UNKNOWN OR FALSE</code></td>
+          <td>UNKNOWN</td>
+          <td>depends on the unknown side</td>
+        </tr>
+        <tr>
+          <td><code>UNKNOWN AND TRUE</code></td>
+          <td>UNKNOWN</td>
+          <td>depends on the unknown side</td>
+        </tr>
+        <tr>
+          <td><code>NOT UNKNOWN</code></td>
+          <td>UNKNOWN</td>
+          <td>negation of unknown is unknown</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Production trap: NOT IN + NULL</h2>
+    <p>Tiny tables:</p>
+    <table>
+      <thead><tr><th>orders.id</th></tr></thead>
+      <tbody><tr><td>1</td></tr><tr><td>2</td></tr></tbody>
+    </table>
+    <table>
+      <thead><tr><th>cancelled.order_id</th></tr></thead>
+      <tbody><tr><td>2</td></tr><tr><td>NULL</td></tr></tbody>
+    </table>
+
+    <pre><code>-- "Orders that are not cancelled" — looks right, often wrong
+SELECT o.id
+FROM orders o
+WHERE o.id NOT IN (SELECT c.order_id FROM cancelled c);</code></pre>
+
+    <p>
+      For <code>o.id = 1</code>: is <code>1 NOT IN (2, NULL)</code> TRUE?
+      No — because <code>NULL</code> could be 1. Result is <strong>UNKNOWN</strong>.
+      <code>WHERE</code> drops the row. With a nullable column in the list,
+      <code>NOT IN</code> is <strong>never TRUE</strong> for any outer value
+      (it is either FALSE or UNKNOWN).
+    </p>
+
+    <div class="note">
+      <p><strong>Fix:</strong> prefer <code>NOT EXISTS</code> (from lesson 1), or strip nulls from the list.</p>
+      <pre><code>SELECT o.id
+FROM orders o
+WHERE NOT EXISTS (
+  SELECT 1 FROM cancelled c
+  WHERE c.order_id = o.id
+);</code></pre>
+      <p class="cite">
+        Winand’s tip: don’t allow <code>null</code> in <code>not in</code> lists;
+        use <code>not exists</code> for subqueries.
+        <code>EXISTS</code> never returns UNKNOWN — only TRUE/FALSE.
+      </p>
+    </div>
+
+    <h2>Joins and NULL keys</h2>
+    <p>
+      Join condition <code>a.key = b.key</code> is UNKNOWN when either key is NULL →
+      that pair does not match (same as “not TRUE”).
+      Two NULL keys do <strong>not</strong> join to each other under <code>=</code>.
+    </p>
+    <p>
+      <code>LEFT JOIN</code> still keeps the left row; right-side columns become NULL
+      when there is no match. Filtering those with <code>WHERE right.id = …</code>
+      can accidentally turn an outer join into an inner join (predicate on right
+      rejects UNKNOWN/NULL matches). Put right-table filters in <code>ON</code> when
+      you mean “match only if …,” or use <code>IS NULL</code> when you mean “no match.”
+    </p>
+
+    <h2>Aggregates (quick map)</h2>
+    <ul>
+      <li><code>SUM</code>/<code>AVG</code>/<code>MIN</code>/<code>MAX</code> ignore NULL inputs</li>
+      <li><code>COUNT(*)</code> counts rows; <code>COUNT(col)</code> counts non-NULL <code>col</code></li>
+      <li><code>SUM</code> of no rows (or only NULLs) → NULL, not 0 — wrap with <code>COALESCE(SUM(x), 0)</code> if you need zero</li>
+    </ul>
+
+    <h2>Check habit (10 seconds)</h2>
+    <ol>
+      <li>Any nullable column in this predicate?</li>
+      <li>Did I write <code>= NULL</code>? → rewrite to <code>IS NULL</code></li>
+      <li><code>NOT IN (subquery)</code>? → prefer <code>NOT EXISTS</code> if subquery can return NULL</li>
+      <li>Filter on right side of <code>LEFT JOIN</code>? → confirm you still want outer-join semantics</li>
+    </ol>
+
+    <h2>Practice</h2>
+
+    <div class="quiz"
+         data-answer="2"
+         data-ok="Correct. col = NULL is UNKNOWN for every row; WHERE keeps only TRUE."
+         data-no="Remember: WHERE does not keep UNKNOWN. = NULL never yields TRUE.">
+      <h3>Q1. What does this return?</h3>
+      <pre><code>SELECT * FROM t WHERE status = NULL;</code></pre>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">All rows where status missing now</button></li>
+        <li><button type="button" class="choice" data-i="1">All rows where status equals blank</button></li>
+        <li><button type="button" class="choice" data-i="2">No rows; UNKNOWN fails the WHERE</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Yes. A NULL in the NOT IN list makes the test never TRUE."
+         data-no="Trace 1 NOT IN (2, NULL): could NULL be 1? Then UNKNOWN, row dropped.">
+      <h3>Q2. <code>NOT IN</code> subquery that can return NULL?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Danger: may drop every outer row</button></li>
+        <li><button type="button" class="choice" data-i="1">Safe: NULL values are just skipped</button></li>
+        <li><button type="button" class="choice" data-i="2">Safe: engine rewrites to NOT EXISTS</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="1"
+         data-ok="Correct. Prefer NOT EXISTS (or strip nulls) so missing keys don't poison the filter."
+         data-no="Lesson 1 EXISTS keeps outer grain and avoids NOT IN null traps.">
+      <h3>Q3. Safest “orders not cancelled” pattern?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">id NOT IN (SELECT order_id … full)</button></li>
+        <li><button type="button" class="choice" data-i="1">NOT EXISTS (match on order_id key)</button></li>
+        <li><button type="button" class="choice" data-i="2">id != ALL cancelled rows including null</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="2"
+         data-ok="Yes. OR is TRUE if any side is TRUE, even when the other side is UNKNOWN."
+         data-no="UNKNOWN OR TRUE is TRUE — the TRUE side already decides.">
+      <h3>Q4. Result of <code>(NULL = 1) OR (1 = 1)</code>?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">UNKNOWN because NULL is present here</button></li>
+        <li><button type="button" class="choice" data-i="1">FALSE because first part is not true</button></li>
+        <li><button type="button" class="choice" data-i="2">TRUE because the second part is true</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <h2>Primary source (read ~15–20 min)</h2>
+    <p>
+      <a href="https://modern-sql.com/concept/three-valued-logic">Modern SQL — The Three-Valued Logic of SQL</a>
+      (Markus Winand). Focus on: comparisons to null, WHERE keeps TRUE only, and the
+      <code>NOT IN (null, …)</code> section.
+    </p>
+
+    <h2>Done when</h2>
+    <ul>
+      <li>You never write <code>= NULL</code>; you reach for <code>IS NULL</code>.</li>
+      <li>You treat <code>NOT IN</code> + nullable subquery as a smell → <code>NOT EXISTS</code>.</li>
+      <li>You can label a predicate TRUE / FALSE / UNKNOWN before running it.</li>
+    </ul>
+
+    <footer class="site">
+      <p><strong>Ask follow-ups.</strong> Paste a real filter or join with nulls — we trace 3VL on it.</p>
+      <p>Next candidates: logical processing order · sargable predicates / pushdown · EXPLAIN basics.</p>
+      <ul>
+        <li><a href="0001-join-fanout-wrong-results.html">← Lesson 0001 (fan-out)</a></li>
+        <li><a href="../reference/glossary.html">Glossary</a></li>
+        <li><a href="../MISSION.md">Mission</a></li>
+        <li><a href="../RESOURCES.md">Resources</a></li>
+      </ul>
+    </footer>
+  </div>
+</body>
+</html>

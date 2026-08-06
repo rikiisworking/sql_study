@@ -19,8 +19,8 @@
 - Prefer transfer skills before vendor trivia
 
 ## Path sketch (high ROI before 8/17)
-1. Join fan-out / grain (wrong results)
-2. NULL + three-valued logic
+1. Join fan-out / grain (wrong results) — lesson 0001
+2. NULL + three-valued logic — lesson 0002
 3. Logical processing order (read complex SQL)
 4. Predicates that engines can use (sargable / partition prune / pushdown)
 5. Plans: EXPLAIN basics (PG/Aurora) then Redshift/Spark labels
