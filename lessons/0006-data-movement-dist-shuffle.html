@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lesson 0006 — Data movement (dist · sort · shuffle)</title>
+  <link rel="stylesheet" href="../assets/lesson.css" />
+  <script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <p class="kicker">Lesson 0006 · Optimization</p>
+      <h1>Slow join? Ask how data moves</h1>
+      <p class="lead">
+        Lesson 0005 taught you to <em>see</em> movement in a plan
+        (<code>DS_*</code>, <code>Exchange</code>, broadcast).
+        This lesson: <em>why</em> it moves, and what you change first on Redshift vs Spark/Glue.
+      </p>
+    </header>
+
+    <p>
+      Mission: when a production join is slow, form a hypothesis
+      (collocated vs redistributed vs broadcast vs shuffle/skew) before cargo-cult indexes.
+      Layout and join strategy are the high-ROI levers on your stack.
+    </p>
+
+    <h2>Skill for this lesson</h2>
+    <p>
+      Given a fact↔dim (or large↔large) join, name:
+      (1) whether the engine likely <strong>moves data</strong>,
+      (2) which lever applies — Redshift <strong>dist/sort</strong> or Spark <strong>broadcast vs shuffle join</strong>,
+      (3) what “good” looks like on a plan.
+    </p>
+
+    <h2>One mental model (both engines)</h2>
+    <p>
+      Distributed SQL pays for <strong>shipping rows across the network</strong>
+      so matching join keys can meet on the same worker.
+      Cheap join = keys already together (or one side small enough to copy everywhere).
+      Expensive join = hash-redistribute both sides, or broadcast something huge.
+    </p>
+    <table>
+      <thead>
+        <tr><th>Situation</th><th>Cheap path</th><th>Pain signal</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Big fact + small dim</td>
+          <td>Copy dim to every node (broadcast / DIST ALL)</td>
+          <td>Broadcast of a fat “dim”</td>
+        </tr>
+        <tr>
+          <td>Big fact + big dim, same join key often</td>
+          <td>Collocate on that key (Redshift KEY; Spark pre-bucket/same partition)</td>
+          <td><code>DS_DIST_BOTH</code> / dual <code>Exchange</code></td>
+        </tr>
+        <tr>
+          <td>Two huge tables, no small side</td>
+          <td>Shuffle once, then hash or sort-merge</td>
+          <td>Shuffle + skew (one partition huge)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Redshift: distribution places rows on slices</h2>
+    <p>
+      Every table has a <strong>distribution style</strong>. Default is often
+      <code>AUTO</code> (Redshift may evolve ALL → KEY → EVEN as the table grows).
+      You still need the model when EXPLAIN shows redistributes and when you design tables.
+    </p>
+    <table>
+      <thead>
+        <tr><th>Style</th><th>Where rows live</th><th>When</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>KEY</code></td>
+          <td>Hash of one column → same value, same slice</td>
+          <td>Frequent equijoins / group-bys on that column</td>
+        </tr>
+        <tr>
+          <td><code>ALL</code></td>
+          <td>Full copy of the table on every node</td>
+          <td>Small, rarely updated dimensions joined many ways</td>
+        </tr>
+        <tr>
+          <td><code>EVEN</code></td>
+          <td>Round-robin across slices</td>
+          <td>No clear join key; or pure scan/agg without joins</td>
+        </tr>
+        <tr>
+          <td><code>AUTO</code></td>
+          <td>Redshift chooses / adjusts</td>
+          <td>Default; still verify real plans under load</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      <strong>Collocated join:</strong> fact and one dimension both
+      <code>DISTKEY</code> on the join column → matching rows already on the same slice →
+      plan often shows <code>DS_DIST_NONE</code> (lesson 0005).
+      Fact table gets <em>one</em> dist key — pick the dimension you join most (and whose filtered size is large).
+    </p>
+    <div class="note">
+      <p>
+        <strong>Skew trap.</strong> Low-cardinality or seasonal keys (e.g. “all sales on one holiday date as DISTKEY”)
+        pile work on few slices. Prefer high-cardinality keys that stay even <em>after</em> common filters.
+      </p>
+      <p>
+        Official checklist:
+        <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_best-practices-best-dist-key.html">Choose the best distribution style</a>;
+        styles defined in
+        <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_choosing_dist_sort.html">Distribution styles</a>.
+      </p>
+    </div>
+
+    <h2>Redshift: sort key = order on disk</h2>
+    <p>
+      Rows are stored sorted by the <strong>sort key</strong>. The optimizer uses min/max per block
+      to <em>skip</em> blocks outside a range — same “don’t read what you don’t need” idea as sargable predicates (0004).
+    </p>
+    <ul>
+      <li>Query mostly “recent window”? Leading sort column = timestamp/date.</li>
+      <li>Heavy equality/range on one column? That column as sort key.</li>
+      <li>Join often on the same column you dist on? Sort + dist on that join key can enable merge join without re-sort.</li>
+      <li><code>AUTO</code> sort is fine until plans or slow range filters say otherwise.</li>
+    </ul>
+    <p class="cite">
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_best-practices-sort-key.html">Choose the best sort key</a>
+    </p>
+
+    <h2>Spark / Glue: join strategy = how keys meet</h2>
+    <p>
+      Spark does not have Redshift DISTKEY on every warehouse table, but the <em>physics</em> match:
+      either <strong>broadcast</strong> a small side, or <strong>shuffle</strong> so keys co-locate, then join.
+    </p>
+    <table>
+      <thead>
+        <tr><th>Strategy</th><th>Idea</th><th>Plan smell</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Broadcast hash</td>
+          <td>Small side copied to all executors; no big shuffle of the fact</td>
+          <td><code>BroadcastHashJoin</code>, <code>BroadcastExchange</code></td>
+        </tr>
+        <tr>
+          <td>Sort-merge</td>
+          <td>Shuffle both sides by key, sort, merge (common for large↔large)</td>
+          <td><code>SortMergeJoin</code> + <code>Exchange hashpartitioning</code></td>
+        </tr>
+        <tr>
+          <td>Shuffle hash</td>
+          <td>Shuffle both; build local hash on smaller side per partition</td>
+          <td><code>ShuffledHashJoin</code> (when chosen)</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      Default auto-broadcast threshold is small (docs cite <code>spark.sql.autoBroadcastJoinThreshold</code>, often 10&nbsp;MB).
+      A “small” dimension that is actually 500&nbsp;MB will not broadcast unless you filter/project it first or hint deliberately.
+      Hints (Spark 3+): <code>/*+ BROADCAST(t) */</code>, <code>MERGE</code>, <code>SHUFFLE_HASH</code>, …
+      Prefer shrink-the-side (select needed columns, filter early) before forcing broadcast of a monster.
+    </p>
+    <p class="cite">
+      <a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/spark-tuning-glue-emr/using-join-hints-in-spark-sql.html">AWS PG — Using join hints in Spark SQL</a>;
+      <a href="https://spark.apache.org/docs/latest/sql-performance-tuning.html">Spark SQL performance tuning</a>
+      (AQE can flip sort-merge → broadcast when runtime stats allow).
+    </p>
+
+    <h2>Transfer map (day-job)</h2>
+    <ol>
+      <li>See movement on plan (0005): <code>DS_*</code> or <code>Exchange</code> / join type.</li>
+      <li>Redshift: can dist/sort make this join collocated or block-skip? If not your table, note layout for the owner.</li>
+      <li>Spark/Glue: can one side fit broadcast after filter/project? Else expect shuffle; watch skew on join key.</li>
+      <li>Change <em>one</em> lever → EXPLAIN again → compare movement, not vibes.</li>
+    </ol>
+
+    <h2>Practice</h2>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Yes. KEY on the shared join column collocates matching rows → DS_DIST_NONE more often."
+         data-no="Collocation needs the same distribution key on both sides of the frequent equijoin.">
+      <h3>Q1. Fact and dim join every night on customer_id. First layout lever?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">DISTKEY both tables on customer_id join column</button></li>
+        <li><button type="button" class="choice" data-i="1">DISTSTYLE EVEN on fact; ignore the dimension key</button></li>
+        <li><button type="button" class="choice" data-i="2">SORTKEY only on random UUID with no predicates</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="2"
+         data-ok="Correct. ALL multiplies storage and load cost; reserve for small, slow-changing dims."
+         data-no="ALL copies the whole table to every node — storage and load scale with cluster size.">
+      <h3>Q2. When is DISTSTYLE ALL usually a bad idea?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Tiny lookup dim joined many ways each day</button></li>
+        <li><button type="button" class="choice" data-i="1">Tiny country codes table, almost never updated</button></li>
+        <li><button type="button" class="choice" data-i="2">Huge fact table reloaded every hour from S3</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="1"
+         data-ok="Right. Leading time sort lets block min/max skip cold history on range filters."
+         data-no="Sort key helps skip blocks for range/equality filters — recent-time queries love a time lead.">
+      <h3>Q3. Most queries filter “last 7 days” of events. Strong sort key lead?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Low-cardinality boolean flag as the only sort</button></li>
+        <li><button type="button" class="choice" data-i="1">Event timestamp (or date) as the leading sort</button></li>
+        <li><button type="button" class="choice" data-i="2">Unrelated free-text comment column as sort key</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Yes. BroadcastHashJoin means the small side was copied — no full dual shuffle for that join."
+         data-no="Broadcast = small side to every executor; SortMergeJoin usually follows Exchange on both sides.">
+      <h3>Q4. Spark plan shows BroadcastHashJoin on a dim. What happened?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Small side copied to executors; fact not fully shuffled for join</button></li>
+        <li><button type="button" class="choice" data-i="1">Both huge sides fully sorted with no network cost ever</button></li>
+        <li><button type="button" class="choice" data-i="2">Only Redshift DS_DIST_BOTH ran inside the Spark driver</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="1"
+         data-ok="Correct. Shrink/project first; broadcast of a fat side OOMs or thrashes executors."
+         data-no="Hints force intent — they do not make a 50 GB dimension free to broadcast.">
+      <h3>Q5. Glue job: 2 TB fact ⨝ 50 GB “dim”. First move?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Force BROADCAST of the full 50 GB side immediately</button></li>
+        <li><button type="button" class="choice" data-i="1">Filter/project the dim; recheck size, then broadcast if small</button></li>
+        <li><button type="button" class="choice" data-i="2">Drop the join key so Spark skips all data movement</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <h2>Primary source (read ~20 min)</h2>
+    <p>
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_best-practices-best-dist-key.html">Redshift — Choose the best distribution style</a>
+      +
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_best-practices-sort-key.html">Choose the best sort key</a>
+      (short official checklists).
+      Then
+      <a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/spark-tuning-glue-emr/using-join-hints-in-spark-sql.html">AWS PG — Spark join hints</a>
+      (Broadcast vs MERGE plans side by side).
+    </p>
+
+    <h2>Done when</h2>
+    <ul>
+      <li>You map <code>DS_DIST_NONE</code> / <code>DS_BCAST_*</code> / <code>DS_DIST_*</code> to layout choices</li>
+      <li>You pick sort-key leads for range filters without confusing them with DISTKEY</li>
+      <li>You choose broadcast vs expect-shuffle for Spark joins and know when a hint is reckless</li>
+    </ul>
+
+    <footer class="site">
+      <p><strong>Ask follow-ups.</strong> Paste a Redshift or Spark EXPLAIN with a join (redact names) — we name the movement and one lever.</p>
+      <p>No SQLite drill here: layout is engine physics. Next: live work plan, skew deep-dive, or Aurora dialect EXPLAIN.</p>
+      <ul>
+        <li><a href="0005-explain-plan-basics.html">← Lesson 0005 (EXPLAIN)</a></li>
+        <li><a href="../reference/plan-labels.html">Plan labels</a></li>
+        <li><a href="../reference/glossary.html#dist-key">Glossary: dist key</a> ·
+            <a href="../reference/glossary.html#sort-key">sort key</a> ·
+            <a href="../reference/glossary.html#shuffle">shuffle</a></li>
+        <li><a href="../MISSION.md">Mission</a></li>
+        <li><a href="../RESOURCES.md">Resources</a></li>
+      </ul>
+    </footer>
+  </div>
+</body>
+</html>

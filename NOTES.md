@@ -22,9 +22,10 @@
 1. Join fan-out / grain (wrong results) — lesson 0001 ✓ (+ drills)
 2. NULL + three-valued logic — lesson 0002 ✓ (+ drills)
 3. Logical processing order (read complex SQL) — lesson 0003 ✓ (+ drills)
-4. Predicates that engines can use (sargable / partition prune / pushdown) — lesson 0004
-5. Plans: EXPLAIN basics (PG map + Redshift/Spark labels) — lesson 0005
-6. Engine-specific: Redshift dist/sort; Spark join strategy / shuffle ← next
+4. Predicates that engines can use (sargable / partition prune / pushdown) — lesson 0004 ✓
+5. Plans: EXPLAIN basics (PG map + Redshift/Spark labels) — lesson 0005 ✓
+6. Data movement: Redshift dist/sort; Spark broadcast vs shuffle — lesson 0006 ✓ (vocab Q&A; see LR-0008)
+7. Next candidates: live work EXPLAIN walkthrough · join skew · Aurora dialect EXPLAIN
 
 ## Open question
 - Aurora dialect: MySQL vs PostgreSQL — still unknown; deep vendor EXPLAIN after known.
@@ -33,6 +34,12 @@
 - Plain EXPLAIN first; ANALYZE only when blast radius OK
 - PG plans: most indent first (leaves → root)
 - LLM OK to decode plans if verify against text + redact
+
+## Data-movement notes (learner)
+- DISTKEY ≠ index (placement vs lookup)
+- Project = columns; filter = rows
+- Spark `/*+ HINT */` needs the `+`; plain `/* */` is inert
+- Prefer shrink dim then broadcast; same SQL body across strategies
 
 
 ## Drill loop

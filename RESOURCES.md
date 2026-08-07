@@ -34,6 +34,14 @@
   EXPLAIN cost/rows/width, operators, join types, DS_* redistribution. Use for: reading Redshift plans bottom-up.
 - [Spark SQL — EXPLAIN](https://spark.apache.org/docs/latest/sql-ref-syntax-qry-explain.html)
   Logical/physical plan command. Use for: Glue/Spark EXPLAIN entry point.
+- [Amazon Redshift — Choose the best distribution style](https://docs.aws.amazon.com/redshift/latest/dg/c_best-practices-best-dist-key.html)
+  Official dist-key checklist (collocate fact/dim, cardinality, ALL tradeoffs, AUTO). Use for: lesson 0006 / table design.
+- [Amazon Redshift — Choose the best sort key](https://docs.aws.amazon.com/redshift/latest/dg/c_best-practices-sort-key.html)
+  Time-lead, range filters, join-column sort+dist. Use for: block skip mental model.
+- [Amazon Redshift — Distribution styles](https://docs.aws.amazon.com/redshift/latest/dg/c_choosing_dist_sort.html)
+  AUTO / EVEN / KEY / ALL definitions. Use for: exact style meanings.
+- [AWS Prescriptive Guidance — Using join hints in Spark SQL](https://docs.aws.amazon.com/prescriptive-guidance/latest/spark-tuning-glue-emr/using-join-hints-in-spark-sql.html)
+  BROADCAST / MERGE / SHUFFLE_HASH with example plans. Use for: Glue join strategy choices.
 
 
 

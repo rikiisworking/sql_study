@@ -53,11 +53,17 @@
       <dt id="shuffle"><strong>Shuffle</strong> (Spark / distributed)</dt>
       <dd>Redistributing data across workers so a join or aggregation can complete. Often the expensive part of Spark SQL / Glue jobs.</dd>
 
-      <dt id="dist-key"><strong>Distribution key</strong> (Redshift)</dt>
-      <dd>How rows are placed across nodes. Join/group on the same dist key reduces data movement.</dd>
+      <dt id="dist-key"><strong>Distribution key</strong> / <strong>distribution style</strong> (Redshift)</dt>
+      <dd>How rows are placed across nodes/slices. Styles: <code>KEY</code> (hash one column), <code>ALL</code> (full copy per node), <code>EVEN</code> (round-robin), <code>AUTO</code> (engine chooses). Same dist key on both sides of a frequent equijoin → collocated join, less redistrib. See lesson 0006.</dd>
 
       <dt id="sort-key"><strong>Sort key</strong> (Redshift)</dt>
-      <dd>Physical row order on disk. Range predicates and some aggregates use it to skip blocks.</dd>
+      <dd>Physical row order on disk. Range/equality predicates can skip blocks via per-block min/max. Not the same lever as dist key (order vs placement). See lesson 0006.</dd>
+
+      <dt id="broadcast-join"><strong>Broadcast join</strong></dt>
+      <dd>Copy a small side to every worker, then join locally. Spark: <code>BroadcastHashJoin</code>. Redshift analog: broadcast inner / <code>DISTSTYLE ALL</code> for small dims. Dangerous when the “small” side is not small.</dd>
+
+      <dt id="collocated-join"><strong>Collocated join</strong></dt>
+      <dd>Matching join keys already on the same slice/node so the engine need not redistribute for that join. Redshift signal: <code>DS_DIST_NONE</code>.</dd>
 
       <dt id="3vl"><strong>Three-valued logic (3VL)</strong></dt>
       <dd>SQL truth values: <code>TRUE</code>, <code>FALSE</code>, <code>UNKNOWN</code>. <code>NULL</code> comparisons yield <code>UNKNOWN</code>; <code>WHERE</code> keeps only <code>TRUE</code>.</dd>

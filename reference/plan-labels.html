@@ -51,7 +51,17 @@
         <tr><td><code>Network</code> / <code>Merge</code></td><td>Leader gather / final merge</td></tr>
       </tbody>
     </table>
-    <p class="cite"><a href="https://docs.aws.amazon.com/redshift/latest/dg/c-the-query-plan.html">Query plan</a></p>
+    <p>
+      Layout behind the labels (see
+      <a href="../lessons/0006-data-movement-dist-shuffle.html">lesson 0006</a>):
+      <code>KEY</code> dist collocate join keys;
+      <code>ALL</code> small dims;
+      <code>EVEN</code> no clear key;
+      sort key → block skip on ranges.
+    </p>
+    <p class="cite"><a href="https://docs.aws.amazon.com/redshift/latest/dg/c-the-query-plan.html">Query plan</a> ·
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_best-practices-best-dist-key.html">Dist style</a> ·
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_best-practices-sort-key.html">Sort key</a></p>
 
     <h2>Spark / Glue</h2>
     <table>
@@ -62,12 +72,18 @@
         <tr><td><code>PushedFilters</code></td><td>Pushdown into source</td></tr>
         <tr><td><code>Exchange</code></td><td>Shuffle / data movement</td></tr>
         <tr><td><code>BroadcastHashJoin</code></td><td>Broadcast small side</td></tr>
+        <tr><td><code>BroadcastExchange</code></td><td>Copy side for broadcast join</td></tr>
         <tr><td><code>SortMergeJoin</code></td><td>Sort + merge (often after shuffle)</td></tr>
+        <tr><td><code>ShuffledHashJoin</code></td><td>Shuffle then local hash</td></tr>
       </tbody>
     </table>
+    <p class="cite"><a href="https://spark.apache.org/docs/latest/sql-ref-syntax-qry-explain.html">EXPLAIN</a> ·
+      <a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/spark-tuning-glue-emr/using-join-hints-in-spark-sql.html">Join hints</a></p>
 
     <footer class="site">
-      <p><a href="glossary.html">Glossary</a> · <a href="../lessons/0005-explain-plan-basics.html">Lesson 0005</a></p>
+      <p><a href="glossary.html">Glossary</a> ·
+        <a href="../lessons/0005-explain-plan-basics.html">Lesson 0005</a> ·
+        <a href="../lessons/0006-data-movement-dist-shuffle.html">Lesson 0006</a></p>
     </footer>
   </div>
 </body>
