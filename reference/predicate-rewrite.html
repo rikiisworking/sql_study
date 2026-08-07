@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Predicate rewrite — SQL Study</title>
+  <link rel="stylesheet" href="../assets/lesson.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <p class="kicker">Reference</p>
+      <h1>Predicate rewrite cheat sheet</h1>
+      <p class="lead">
+        Same meaning, bare column. Use with
+        <a href="../lessons/0004-sargable-predicates-pushdown.html">lesson 0004</a>.
+      </p>
+    </header>
+
+    <h2>Date / time periods</h2>
+    <table>
+      <thead>
+        <tr><th>Avoid (column wrapped)</th><th>Prefer (range on column)</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>YEAR(d) = 2024</code></td>
+          <td><code>d &gt;= DATE '2024-01-01' AND d &lt; DATE '2025-01-01'</code></td>
+        </tr>
+        <tr>
+          <td><code>DATE(d) = '2024-06-01'</code></td>
+          <td><code>d &gt;= … AND d &lt; … + 1 day</code></td>
+        </tr>
+        <tr>
+          <td><code>TO_CHAR(d, 'YYYY-MM') = '2024-06'</code></td>
+          <td><code>d &gt;= DATE '2024-06-01' AND d &lt; DATE '2024-07-01'</code></td>
+        </tr>
+        <tr>
+          <td><code>TRUNC(d) = TRUNC(sysdate)</code></td>
+          <td><code>d &gt;= day_start AND d &lt; day_end</code></td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="cite">
+      Pattern from
+      <a href="https://use-the-index-luke.com/sql/where-clause/obfuscation/dates">Winand — Date Types</a>.
+    </p>
+
+    <h2>Other</h2>
+    <table>
+      <thead>
+        <tr><th>Avoid</th><th>Prefer</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>CAST(id AS text) = '42'</code></td>
+          <td><code>id = 42</code> (match column type)</td>
+        </tr>
+        <tr>
+          <td><code>amount + 0 = 100</code></td>
+          <td><code>amount = 100</code></td>
+        </tr>
+        <tr>
+          <td><code>LOWER(email) = LOWER(?)</code></td>
+          <td>Store normalized email; filter bare — or expression index if engine supports it</td>
+        </tr>
+        <tr>
+          <td><code>col1 || col2 = ?</code></td>
+          <td>Filter on separate columns when possible</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Engine words (same habit)</h2>
+    <ul>
+      <li><strong>Sargable</strong> — index / ordered access on RDBMS</li>
+      <li><strong>Partition pruning</strong> — skip lake/table partitions</li>
+      <li><strong>Predicate pushdown</strong> — filter at storage / Spectrum / scan</li>
+      <li><strong>Redshift sort key</strong> — range on bare sort columns skips blocks</li>
+    </ul>
+
+    <footer class="site">
+      <p><a href="glossary.html">Glossary</a> · <a href="../lessons/0004-sargable-predicates-pushdown.html">Lesson 0004</a></p>
+    </footer>
+  </div>
+</body>
+</html>

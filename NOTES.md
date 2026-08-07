@@ -22,9 +22,18 @@
 1. Join fan-out / grain (wrong results) — lesson 0001 ✓ (+ drills)
 2. NULL + three-valued logic — lesson 0002 ✓ (+ drills)
 3. Logical processing order (read complex SQL) — lesson 0003 ✓ (+ drills)
-4. Predicates that engines can use (sargable / partition prune / pushdown) ← next
-5. Plans: EXPLAIN basics (PG/Aurora) then Redshift/Spark labels
-6. Engine-specific: Redshift dist/sort; Spark join strategy / shuffle
+4. Predicates that engines can use (sargable / partition prune / pushdown) — lesson 0004
+5. Plans: EXPLAIN basics (PG map + Redshift/Spark labels) — lesson 0005
+6. Engine-specific: Redshift dist/sort; Spark join strategy / shuffle ← next
+
+## Open question
+- Aurora dialect: MySQL vs PostgreSQL — still unknown; deep vendor EXPLAIN after known.
+
+## EXPLAIN work habits (learner)
+- Plain EXPLAIN first; ANALYZE only when blast radius OK
+- PG plans: most indent first (leaves → root)
+- LLM OK to decode plans if verify against text + redact
+
 
 ## Drill loop
 - `python3 drills/run.py <case>` — see result

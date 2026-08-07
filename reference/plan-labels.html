@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Plan labels — SQL Study</title>
+  <link rel="stylesheet" href="../assets/lesson.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <p class="kicker">Reference</p>
+      <h1>Plan labels cheat sheet</h1>
+      <p class="lead">
+        Portable reading order + engine labels. Pair with
+        <a href="../lessons/0005-explain-plan-basics.html">lesson 0005</a>.
+      </p>
+    </header>
+
+    <h2>Always ask</h2>
+    <ol>
+      <li>Scan? (what storage access)</li>
+      <li>Filter early or late?</li>
+      <li>Join type?</li>
+      <li>Data movement (broadcast / redistribute / exchange)?</li>
+    </ol>
+
+    <h2>PostgreSQL / Aurora PG</h2>
+    <table>
+      <thead><tr><th>Label</th><th>Hint</th></tr></thead>
+      <tbody>
+        <tr><td><code>Seq Scan</code></td><td>Read table without index seek</td></tr>
+        <tr><td><code>Index Scan</code> / <code>Bitmap Index Scan</code></td><td>Use index; check Index Cond</td></tr>
+        <tr><td><code>Index Cond</code></td><td>Sargable access predicate</td></tr>
+        <tr><td><code>Filter</code></td><td>After fetch (or non-indexable clause)</td></tr>
+        <tr><td><code>Nested Loop</code> / <code>Hash Join</code> / <code>Merge Join</code></td><td>Join algorithm</td></tr>
+        <tr><td><code>cost=a..b</code> <code>rows=</code> <code>width=</code></td><td>Relative cost, out rows, row bytes</td></tr>
+      </tbody>
+    </table>
+    <p class="cite"><a href="https://www.postgresql.org/docs/current/using-explain.html">Using EXPLAIN</a></p>
+
+    <h2>Redshift</h2>
+    <table>
+      <thead><tr><th>Label</th><th>Hint</th></tr></thead>
+      <tbody>
+        <tr><td><code>XN Seq Scan</code></td><td>Table scan</td></tr>
+        <tr><td><code>Hash Join</code> / <code>Merge Join</code> / <code>Nested Loop</code></td><td>Join; loop often bad for large equijoins</td></tr>
+        <tr><td><code>DS_DIST_NONE</code></td><td>Collocated — no redistrib for join</td></tr>
+        <tr><td><code>DS_BCAST_INNER</code></td><td>Broadcast inner</td></tr>
+        <tr><td><code>DS_DIST_INNER</code> / <code>OUTER</code> / <code>BOTH</code></td><td>Redistribute</td></tr>
+        <tr><td><code>Network</code> / <code>Merge</code></td><td>Leader gather / final merge</td></tr>
+      </tbody>
+    </table>
+    <p class="cite"><a href="https://docs.aws.amazon.com/redshift/latest/dg/c-the-query-plan.html">Query plan</a></p>
+
+    <h2>Spark / Glue</h2>
+    <table>
+      <thead><tr><th>Label</th><th>Hint</th></tr></thead>
+      <tbody>
+        <tr><td><code>FileScan</code> (+ format)</td><td>Read files</td></tr>
+        <tr><td><code>PartitionFilters</code></td><td>Partition pruning</td></tr>
+        <tr><td><code>PushedFilters</code></td><td>Pushdown into source</td></tr>
+        <tr><td><code>Exchange</code></td><td>Shuffle / data movement</td></tr>
+        <tr><td><code>BroadcastHashJoin</code></td><td>Broadcast small side</td></tr>
+        <tr><td><code>SortMergeJoin</code></td><td>Sort + merge (often after shuffle)</td></tr>
+      </tbody>
+    </table>
+
+    <footer class="site">
+      <p><a href="glossary.html">Glossary</a> · <a href="../lessons/0005-explain-plan-basics.html">Lesson 0005</a></p>
+    </footer>
+  </div>
+</body>
+</html>

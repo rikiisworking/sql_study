@@ -25,10 +25,24 @@
       <dd>A boolean condition in <code>WHERE</code>, <code>JOIN … ON</code>, or <code>HAVING</code> that filters or matches rows.</dd>
 
       <dt id="sargable"><strong>Sargable</strong></dt>
-      <dd>A predicate the engine can use efficiently with an index or ordered/partitioned layout (e.g. <code>col = ?</code>, <code>col &gt;= ?</code>). Wrapping the column in a function often kills this.</dd>
+      <dd>A predicate the engine can use efficiently with an index or ordered/partitioned layout (e.g. <code>col = ?</code>, <code>col &gt;= ?</code>). Wrapping the column in a function often kills this. See also <a href="predicate-rewrite.html">predicate rewrite</a>.</dd>
+
+      <dt id="partition-pruning"><strong>Partition pruning</strong></dt>
+      <dd>Skipping entire partitions (folders / table partitions) that cannot match the query’s filters, so those files are never scanned. Needs filters the engine can map to partition columns.</dd>
+
+      <dt id="predicate-pushdown"><strong>Predicate pushdown</strong></dt>
+      <dd>Applying a filter as close to storage as possible (file scan, Spectrum layer, data source) so less data is read into the engine’s main compute path.</dd>
+
 
       <dt id="plan"><strong>Plan</strong> (query plan / execution plan)</dt>
-      <dd>The steps the engine chose: scans, joins, aggregates, shuffles. Inspected with <code>EXPLAIN</code> (wording varies by engine).</dd>
+      <dd>The steps the engine chose: scans, joins, aggregates, shuffles. Inspected with <code>EXPLAIN</code> (wording varies by engine). See <a href="plan-labels.html">plan labels</a>.</dd>
+
+      <dt id="index-cond"><strong>Index condition</strong> (access predicate)</dt>
+      <dd>A filter the engine can use to limit an index range or seek (e.g. PG <code>Index Cond</code>). Contrast a plain <code>Filter</code> applied after rows are already fetched.</dd>
+
+      <dt id="data-redistribution"><strong>Data redistribution</strong> (Redshift DS_*)</dt>
+      <dd>Moving rows across slices/nodes so a join or aggregate can complete. Labels like <code>DS_DIST_NONE</code>, <code>DS_BCAST_INNER</code>, <code>DS_DIST_BOTH</code> appear on Redshift join plans.</dd>
+
 
       <dt id="scan"><strong>Scan</strong></dt>
       <dd>Reading many rows/blocks/files to find matches. Not always bad—but full scans on huge tables are the first place to look when something is slow.</dd>

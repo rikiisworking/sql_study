@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lesson 0005 — EXPLAIN plan basics</title>
+  <link rel="stylesheet" href="../assets/lesson.css" />
+  <script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <p class="kicker">Lesson 0005 · Optimization</p>
+      <h1>Read a plan before you guess</h1>
+      <p class="lead">
+        You rewrote a predicate (lesson 0004). Did the engine care?
+        <code>EXPLAIN</code> is how you check — same mission skill on Aurora, Redshift, and Spark/Glue,
+        different labels.
+      </p>
+    </header>
+
+    <p>
+      Mission: fix production SQL under real volume. Hypothesis first
+      (scan / join / shuffle / skew), then evidence from a plan or metrics —
+      not cargo-cult indexes. This lesson is the <em>vocabulary</em> for that evidence.
+    </p>
+
+    <h2>Skill for this lesson</h2>
+    <p>
+      Given a plan tree, answer four questions:
+      (1) where do rows enter (scan)?
+      (2) what filters run at the scan vs later?
+      (3) how do tables meet (join type)?
+      (4) what might be expensive (full scan, broadcast, shuffle)?
+    </p>
+
+    <h2>How to read any plan</h2>
+    <ol>
+      <li><strong>Tree, not a list.</strong> Indentation = parent/child. Data flows from leaves up (or “read bottom → top” on Redshift-style text).</li>
+      <li><strong>Leaves = scans.</strong> Table/file access lives here: sequential scan, index scan, <code>FileScan parquet</code>, Spectrum S3 scan.</li>
+      <li><strong>Nodes above = work.</strong> Filter, join, aggregate, sort, exchange/shuffle, network to leader.</li>
+      <li><strong>Costs are relative.</strong> Planner units, not wall-clock. Use them to compare steps <em>inside</em> one plan; confirm with actuals when available.</li>
+    </ol>
+    <p class="cite">
+      PostgreSQL documents this tree model and the cost/rows/width fields clearly —
+      best map for Aurora PostgreSQL and a clean mental model for other engines.
+      <a href="https://www.postgresql.org/docs/current/using-explain.html">PostgreSQL — Using EXPLAIN</a>.
+    </p>
+
+    <h2>PostgreSQL-shaped plan (Aurora PG / teaching map)</h2>
+    <pre><code>EXPLAIN SELECT * FROM tenk1 WHERE unique1 &lt; 100;
+
+ Bitmap Heap Scan on tenk1  (cost=5.06..224.98 rows=100 width=244)
+   Recheck Cond: (unique1 &lt; 100)
+   -&gt;  Bitmap Index Scan on tenk1_unique1  (cost=0.00..5.04 rows=100 width=0)
+         Index Cond: (unique1 &lt; 100)</code></pre>
+    <table>
+      <thead>
+        <tr><th>Field</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>cost=a..b</code></td><td>Startup cost .. total cost if node runs to completion (arbitrary units)</td></tr>
+        <tr><td><code>rows=</code></td><td>Estimated rows <em>emitted</em> by the node (not always rows scanned)</td></tr>
+        <tr><td><code>width=</code></td><td>Estimated average row size (bytes)</td></tr>
+        <tr><td><code>Index Cond</code></td><td>Used to seek/limit index range (good sign for sargable filter)</td></tr>
+        <tr><td><code>Filter</code></td><td>Applied after rows are fetched — still pays for those rows</td></tr>
+      </tbody>
+    </table>
+    <div class="note">
+      <p>
+        <strong>Index Cond vs Filter</strong> is lesson 0004 made visible:
+        bare <code>unique1 &lt; 100</code> can be an index condition;
+        a function on the column often becomes only a filter (or forces a seq scan).
+      </p>
+      <p>
+        <code>EXPLAIN ANALYZE</code> (PG) <em>runs</em> the query and adds actual times/rows.
+        Use on read-only probes; wrap writes in a transaction you roll back.
+        Side effects still happen unless you prevent them.
+      </p>
+    </div>
+
+    <h2>Redshift: same idea, XN + data movement</h2>
+    <pre><code>explain select eventname, count(*) from event group by eventname;
+
+XN HashAggregate  (cost=131.97..133.41 rows=576 width=17)
+  -&gt;  XN Seq Scan on event  (cost=0.00..87.98 rows=8798 width=17)</code></pre>
+    <p>
+      Read <strong>bottom → top</strong>. Redshift cost/rows/width play the same relative role.
+      Official note: EXPLAIN does <em>not</em> run the query; it is a simplified view
+      (parallel detail lives in SVL views after a real run).
+    </p>
+    <p>Join plans add <strong>how data moves</strong> — critical on a cluster:</p>
+    <table>
+      <thead>
+        <tr><th>Label</th><th>Means (roughly)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>XN Seq Scan</code></td><td>Table scan (every row/block path considered)</td></tr>
+        <tr><td><code>Hash Join</code> / <code>Merge Join</code> / <code>Nested Loop</code></td><td>How tables meet (loop often worst for big equality joins)</td></tr>
+        <tr><td><code>DS_DIST_NONE</code></td><td>No redistribute — collocated join (good)</td></tr>
+        <tr><td><code>DS_BCAST_INNER</code></td><td>Broadcast inner table to all nodes</td></tr>
+        <tr><td><code>DS_DIST_INNER</code> / <code>BOTH</code></td><td>Redistribute for the join (network cost)</td></tr>
+        <tr><td><code>Network</code> / <code>Merge</code></td><td>Ship to leader / final merge sort</td></tr>
+      </tbody>
+    </table>
+    <p class="cite">
+      Source:
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/c-the-query-plan.html">Amazon Redshift — Creating and interpreting a query plan</a>
+      (operators + DS_* redistribution attributes).
+    </p>
+
+    <h2>Spark / Glue: FileScan and filters</h2>
+    <p>
+      In Spark SQL, default <code>EXPLAIN</code> shows a <strong>physical plan</strong>.
+      Start at the bottom: scan nodes, then joins, aggregates, exchanges.
+    </p>
+    <ul>
+      <li><code>FileScan parquet … PartitionFilters: […]</code> — partition pruning in play</li>
+      <li><code>PushedFilters: […]</code> — predicate pushdown into the data source</li>
+      <li><code>Exchange</code> / shuffle — data movement across executors (often the pain)</li>
+      <li><code>BroadcastHashJoin</code> vs <code>SortMergeJoin</code> — small side broadcast vs sort-merge after shuffle</li>
+    </ul>
+    <p class="cite">
+      <a href="https://spark.apache.org/docs/latest/sql-ref-syntax-qry-explain.html">Spark SQL — EXPLAIN</a>;
+      earlier lesson’s DPP note:
+      <a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/spark-tuning-glue-emr/pruning-dynamic-partitions.html">dynamic partition pruning</a>
+      (look for <code>PartitionFilters</code> / <code>dynamicpruningexpression</code> in EXPLAIN).
+    </p>
+
+    <h2>Portable 60-second checklist</h2>
+    <ol>
+      <li>Find each <strong>scan</strong>. Full table/file scan on a huge relation? Why?</li>
+      <li>Is your selective filter an <strong>access/index/partition</strong> condition, or only a late filter?</li>
+      <li>Join: nested loop on big inputs? Unexpected broadcast? Spark <code>Exchange</code> explosion?</li>
+      <li>Row estimates absurd (1 vs millions)? Stats stale — <code>ANALYZE</code> / table stats matter.</li>
+      <li>Change one thing (predicate rewrite from 0004, or join key) → EXPLAIN again → compare.</li>
+    </ol>
+
+    <div class="note">
+      <p>
+        <strong>Aurora dialect still open.</strong>
+        If Aurora is PostgreSQL-compatible, PG docs map almost 1:1.
+        If MySQL-compatible, plan text differs (<code>EXPLAIN</code> / <code>EXPLAIN ANALYZE</code> formats)
+        but the same four questions apply. Tell the agent when you know which.
+      </p>
+    </div>
+
+    <h2>Practice</h2>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Yes. Scans are leaves; work stacks above as data flows up the tree."
+         data-no="Plans are trees: bottom/leaf nodes read storage; parents join, filter, aggregate.">
+      <h3>Q1. Where do table rows first enter a plan?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Leaf scan nodes (seq/index/file scan)</button></li>
+        <li><button type="button" class="choice" data-i="1">Top Limit node before any table access</button></li>
+        <li><button type="button" class="choice" data-i="2">Only inside ORDER BY after SELECT list</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="2"
+         data-ok="Correct. Index Cond (or partition filter) narrows access; Filter checks rows already fetched."
+         data-no="Think lesson 0004: seeking with the index vs checking after the row is read.">
+      <h3>Q2. Index Cond vs Filter on a PG-style plan?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Filter seeks the index; Index Cond is cosmetic only</button></li>
+        <li><button type="button" class="choice" data-i="1">Both always mean a full sequential table scan</button></li>
+        <li><button type="button" class="choice" data-i="2">Index Cond limits lookup; Filter applies after fetch</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="1"
+         data-ok="Yes. DS_DIST_NONE means slices already line up — no redistribute for that join."
+         data-no="Redshift DS_* labels describe data movement for the join, not SQL join syntax alone.">
+      <h3>Q3. Redshift join label you usually want for collocated joins?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">DS_BCAST_INNER on both large fact tables</button></li>
+        <li><button type="button" class="choice" data-i="1">DS_DIST_NONE when join keys already align</button></li>
+        <li><button type="button" class="choice" data-i="2">DS_DIST_BOTH on every selective filter only</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Right. PartitionFilters (and pushdown) show the engine skipping work at scan time."
+         data-no="Spark physical plans expose pruning/pushdown on the FileScan line — that is the check.">
+      <h3>Q4. Spark/Glue: partition pruning likely working when you see?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">FileScan with non-empty PartitionFilters</button></li>
+        <li><button type="button" class="choice" data-i="1">Only a Sort node with no scan underneath</button></li>
+        <li><button type="button" class="choice" data-i="2">CartesianProduct as the sole leaf operator</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <h2>Primary source (read ~15–20 min)</h2>
+    <p>
+      <a href="https://www.postgresql.org/docs/current/using-explain.html">PostgreSQL — Using EXPLAIN</a>
+      through the basic examples (seq scan → filter → index/bitmap → simple join).
+      Then skim
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/c-the-query-plan.html">Redshift query plan</a>
+      “EXPLAIN operators” + “Data redistribution” for DS_* labels.
+    </p>
+
+    <h2>Done when</h2>
+    <ul>
+      <li>You read a plan bottom-up and name the scan + join style</li>
+      <li>You distinguish access/index/partition conditions from late filters</li>
+      <li>You know Redshift DS_* and Spark PartitionFilters as “movement / prune” signals</li>
+    </ul>
+
+    <footer class="site">
+      <p><strong>Ask follow-ups.</strong> Paste an EXPLAIN from work (redact names if needed) — we walk the four questions.</p>
+      <p>Next candidates: Redshift dist/sort design · Spark join strategy / shuffle · Aurora dialect-specific EXPLAIN.</p>
+      <ul>
+        <li><a href="0004-sargable-predicates-pushdown.html">← Lesson 0004 (sargable)</a></li>
+        <li><a href="../reference/plan-labels.html">Plan labels cheat sheet</a></li>
+        <li><a href="../reference/glossary.html">Glossary</a></li>
+        <li><a href="../MISSION.md">Mission</a></li>
+        <li><a href="../RESOURCES.md">Resources</a></li>
+      </ul>
+    </footer>
+  </div>
+</body>
+</html>

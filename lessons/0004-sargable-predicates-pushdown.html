@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lesson 0004 — Sargable predicates, prune, pushdown</title>
+  <link rel="stylesheet" href="../assets/lesson.css" />
+  <script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <p class="kicker">Lesson 0004 · Optimization starts here</p>
+      <h1>Predicates the engine can use</h1>
+      <p class="lead">
+        Correctness first (lessons 0001–0003). Now: filters that let engines
+        <em>skip work</em> — indexes, sort keys, partitions, file scans —
+        instead of reading everything and deciding later.
+      </p>
+    </header>
+
+    <p>
+      Mission: write and fix production SQL on
+      <strong>Aurora / Redshift / Glue (Spark SQL)</strong>.
+      Slow queries often share one root: a
+      <a href="../reference/glossary.html#predicate">predicate</a>
+      that looks right but is written so the engine cannot apply it early.
+    </p>
+
+    <h2>Skill for this lesson</h2>
+    <p>
+      Read a filter and say whether the column is “bare” enough for
+      <a href="../reference/glossary.html#sargable">sargable</a> use
+      (index / sort / partition / pushdown). If not, rewrite it to a
+      range or equality on the raw column — same meaning, less scan.
+    </p>
+
+    <h2>One idea, three labels</h2>
+    <p>Same habit, different product words:</p>
+    <table>
+      <thead>
+        <tr><th>Word</th><th>Means</th><th>Where you hear it</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><a href="../reference/glossary.html#sargable">Sargable</a></td>
+          <td>Predicate can drive an index/ordered lookup</td>
+          <td>Aurora-style / classic RDBMS</td>
+        </tr>
+        <tr>
+          <td><a href="../reference/glossary.html#partition-pruning">Partition pruning</a></td>
+          <td>Skip whole partitions/folders that cannot match</td>
+          <td>Spark / Glue, Redshift Spectrum, lakes</td>
+        </tr>
+        <tr>
+          <td><a href="../reference/glossary.html#predicate-pushdown">Predicate pushdown</a></td>
+          <td>Apply filter close to storage (files, Spectrum layer)</td>
+          <td>Spark, Spectrum, columnar formats</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      Mental model: <strong>bare column on the left, constants/ranges on the right</strong>
+      (or the reverse, as long as you do not wrap the <em>stored</em> column in a black-box function).
+    </p>
+
+    <h2>The classic trap: function on the column</h2>
+    <p>
+      Markus Winand calls these
+      <a href="https://use-the-index-luke.com/sql/where-clause/obfuscation">obfuscated conditions</a>:
+      the <code>WHERE</code> is logically correct, but the engine cannot match it to
+      an index (or ordered layout) on the base column. Functions are black boxes
+      to the optimizer unless a matching function-based index exists.
+    </p>
+
+    <pre><code>-- Same day? Looks fine. Often kills index / range use on sale_date.
+WHERE YEAR(sale_date) = 2024
+WHERE DATE(sale_date) = '2024-06-01'
+WHERE TRUNC(sale_date) = DATE '2024-06-01'
+WHERE TO_CHAR(sale_date, 'YYYY-MM') = '2024-06'</code></pre>
+
+    <p>
+      Preferred shape: <strong>explicit range on the bare column</strong>
+      (works across engines; Winand’s portable fix for date periods):
+    </p>
+
+    <pre><code>-- All of 2024
+WHERE sale_date &gt;= DATE '2024-01-01'
+  AND sale_date &lt;  DATE '2025-01-01'
+
+-- One calendar day (if sale_date has a time component)
+WHERE sale_date &gt;= TIMESTAMP '2024-06-01 00:00:00'
+  AND sale_date &lt;  TIMESTAMP '2024-06-02 00:00:00'</code></pre>
+
+    <div class="note">
+      <p>
+        <strong>Rule:</strong> transform the <em>search term</em> into bounds;
+        leave the table column alone.
+      </p>
+      <p class="cite">
+        Source:
+        <a href="https://use-the-index-luke.com/sql/where-clause/obfuscation/dates">Use The Index, Luke — Date Types</a>
+        (Markus Winand). “Write queries for continuous periods as explicit range condition.”
+      </p>
+    </div>
+
+    <h2>Other common obfuscations</h2>
+    <ul>
+      <li><code>WHERE amount + 0 = 100</code> / <code>WHERE amount * 1 = …</code> — math on column hides it</li>
+      <li><code>WHERE CAST(id AS text) = '42'</code> — type mix; compare with correct type on the constant</li>
+      <li><code>WHERE first_name || last_name = ?</code> — cannot use separate indexes on each name</li>
+      <li><code>WHERE LOWER(email) = LOWER(?)</code> — needs expression index <em>or</em> store normalized form</li>
+    </ul>
+    <p class="cite">
+      Redshift states it plainly: avoid functions in query predicates; they raise cost by forcing more rows through intermediate steps.
+      See
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_designing-queries-best-practices.html">Amazon Redshift — Best practices for designing queries</a>.
+    </p>
+
+    <h2>Warehouse / lake: partitions and pushdown</h2>
+    <p>
+      On Glue/Spark and Redshift Spectrum, “index” is often
+      <strong>partition columns + file layout</strong> (Hive-style
+      <code>…/year=2024/month=06/</code> or similar).
+    </p>
+    <pre><code>-- Partition column is event_date (or year/month folders)
+-- Helps pruning: filter matches partition metadata
+WHERE event_date &gt;= DATE '2024-06-01'
+  AND event_date &lt;  DATE '2024-07-01'
+
+-- Hurts pruning: engine may not map YEAR(...) to partition keys
+WHERE YEAR(event_date) = 2024 AND MONTH(event_date) = 6</code></pre>
+    <p>
+      <strong>Partition pruning</strong> skips whole partitions that cannot match.
+      <strong>Predicate pushdown</strong> pushes remaining filters into the scan
+      (e.g. Parquet row-group stats, Spectrum layer) so less data hits the cluster.
+    </p>
+    <p class="cite">
+      AWS:
+      <a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/spark-tuning-glue-emr/pruning-dynamic-partitions.html">Pruning dynamic partitions (Spark on Glue/EMR)</a>
+      — apply filters early; confirm with <code>EXPLAIN</code> (<code>PartitionFilters</code> / DPP).
+      Spectrum:
+      <a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/query-best-practices-redshift/best-practices-redshift-spectrum.html">Redshift Spectrum best practices</a>
+      — prefix partitions; filter on partition keys; check qualified vs total partitions.
+    </p>
+
+    <h2>Redshift local tables: sort keys echo the same habit</h2>
+    <p>
+      For tables on the cluster (not only Spectrum), Redshift recommends:
+      restrict with <code>WHERE</code> so the planner can use <em>row order</em>
+      (sort keys) and skip disk blocks; avoid functions on those columns.
+      Put selective predicates early; filter both sides of a join when both tables
+      can use their sort keys.
+    </p>
+    <p class="cite">
+      Same doc:
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_designing-queries-best-practices.html">designing queries best practices</a>.
+      Full sort/dist design is a later lesson; today only the <em>predicate shape</em>.
+    </p>
+
+    <h2>Check habit (15 seconds)</h2>
+    <ol>
+      <li>Is the filtered column bare, or wrapped in a function / cast / math?</li>
+      <li>Can I write the same meaning as <code>=</code> / <code>&gt;=</code> / <code>&lt;</code> / <code>BETWEEN</code> on the raw column?</li>
+      <li>If the table is partitioned: does my filter mention the <em>partition</em> column in a form the catalog understands?</li>
+      <li>After a rewrite, plan next (lesson 0005+): <code>EXPLAIN</code> — index range? partition filter? S3 scan size?</li>
+    </ol>
+
+    <h2>Practice</h2>
+
+    <div class="quiz"
+         data-answer="1"
+         data-ok="Yes. YEAR(sale_date) wraps the column; rewrite as a half-open range on sale_date."
+         data-no="Think: can an index on sale_date seek YEAR(sale_date)? Functions hide the base column.">
+      <h3>Q1. Best first rewrite for “all sales in 2024”?</h3>
+      <pre><code>WHERE YEAR(sale_date) = 2024</code></pre>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Keep YEAR(); add a second index only</button></li>
+        <li><button type="button" class="choice" data-i="1">Range: sale_date &gt;= 2024-01-01 and &lt; 2025-01-01</button></li>
+        <li><button type="button" class="choice" data-i="2">Move YEAR() into SELECT and drop WHERE</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Correct. Bare equality/range on the partition column is what pruning expects."
+         data-no="Partition pruning keys off partition columns in a form metadata can match — not arbitrary functions.">
+      <h3>Q2. Table partitioned by event_date. Which helps pruning most?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">WHERE event_date &gt;= d1 AND event_date &lt; d2</button></li>
+        <li><button type="button" class="choice" data-i="1">WHERE YEAR(event_date)*100+MONTH(event_date)=202406</button></li>
+        <li><button type="button" class="choice" data-i="2">WHERE CAST(event_date AS text) LIKE '2024-06%'</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="2"
+         data-ok="Yes. Redshift guidance: avoid functions in predicates; prefer cheap comparisons on raw columns."
+         data-no="Re-read Redshift query design: functions in predicates raise cost and block ordered skip.">
+      <h3>Q3. Redshift-oriented rule of thumb?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Always wrap sort keys in TRUNC for clarity</button></li>
+        <li><button type="button" class="choice" data-i="1">Prefer SELECT * so the planner sees all columns</button></li>
+        <li><button type="button" class="choice" data-i="2">Prefer bare-column predicates; avoid functions there</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="1"
+         data-ok="Right. Same habit: do not wrap the stored column; express bounds on the constant side."
+         data-no="LOWER(email) on the column needs a matching expression index or a normalized stored column.">
+      <h3>Q4. Index exists only on email (raw). Safest portable filter?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">WHERE LOWER(email) = LOWER('Ada@X.com')</button></li>
+        <li><button type="button" class="choice" data-i="1">WHERE email = 'ada@x.com' if stored normalized</button></li>
+        <li><button type="button" class="choice" data-i="2">WHERE email || '' = 'Ada@X.com'</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <h2>Primary source (read ~15 min)</h2>
+    <p>
+      <a href="https://use-the-index-luke.com/sql/where-clause/obfuscation/dates">Use The Index, Luke — Date Types (obfuscated conditions)</a>
+      (Markus Winand). Focus on: function on column vs explicit range; why
+      <code>TRUNC(sale_date)</code> / <code>TO_CHAR(sale_date, …)</code> fight indexes.
+    </p>
+    <p class="cite">
+      Stack backup for your engines:
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_designing-queries-best-practices.html">Redshift query design</a>
+      (predicates, no functions in filters);
+      <a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/spark-tuning-glue-emr/pruning-dynamic-partitions.html">Spark dynamic partition pruning</a>.
+    </p>
+
+    <h2>Done when</h2>
+    <ul>
+      <li>You can rewrite a date “year/month” filter as a half-open range on the bare column</li>
+      <li>You can name the same idea as sargable / prune / pushdown for your stack</li>
+      <li>You check “function on column?” before you reach for a bigger cluster</li>
+    </ul>
+
+    <footer class="site">
+      <p><strong>Ask follow-ups.</strong> Paste a slow filter from work — we rewrite it bare-column first, then talk plans.</p>
+      <p>Next candidates: EXPLAIN basics (Aurora dialect matters) · Redshift dist/sort · Spark join/shuffle.</p>
+      <ul>
+        <li><a href="0003-logical-processing-order.html">← Lesson 0003 (logical order)</a></li>
+        <li><a href="0001-join-fanout-wrong-results.html">← Lesson 0001 (fan-out)</a></li>
+        <li><a href="../reference/glossary.html">Glossary</a></li>
+        <li><a href="../reference/predicate-rewrite.html">Predicate rewrite cheat sheet</a></li>
+        <li><a href="../MISSION.md">Mission</a></li>
+        <li><a href="../RESOURCES.md">Resources</a></li>
+      </ul>
+    </footer>
+  </div>
+</body>
+</html>

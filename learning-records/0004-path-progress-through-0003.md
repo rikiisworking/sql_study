@@ -1,7 +1,9 @@
-# Path progress through lesson 0003
+# Path progress (correctness through optimization)
 
-Correctness track delivered: 0001 fan-out, 0002 NULL/3VL, 0003 logical processing order.
+Correctness track: 0001 fan-out, 0002 NULL/3VL, 0003 logical order (+ drills).
 
-**Retrieval (drills):** L1–L3 cases under `drills/` exercised with edit → `run.py` / `check.py` loop. Proven: alias-safe filter (repeat expr in WHERE), WHERE vs HAVING, group filter with HAVING COUNT. Near-miss: `l3_03` passed seed without HAVING until “at least 2” called out — seed had only one paid customer group.
+Optimization track started:
+- Lesson 0004 sargable / prune / pushdown (see LR-0006)
+- Lesson 0005 EXPLAIN basics (see LR-0007)
 
-**Implications for ZPD:** Correctness block ready to leave for optimization. Next high-ROI lesson is path item 4 — **sargable predicates / partition prune / pushdown**. Before EXPLAIN deep-dives, resolve Aurora dialect (MySQL vs PostgreSQL). Optional: one PR-style multi-join blob combining grain + 3VL + logical order before moving on.
+**Implications for ZPD:** Plan vocabulary in progress (not mastery). Next high-ROI: engine-specific layout — Redshift dist/sort and/or Spark join strategy/shuffle — or a live EXPLAIN walkthrough from work. Aurora dialect still open.

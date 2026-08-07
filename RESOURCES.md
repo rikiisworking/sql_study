@@ -22,6 +22,20 @@
   Long-form NULL/3VL with practical examples. Use for: deeper practice after the modern-sql page.
 - [SELECT (Transact-SQL) — Logical processing order (Microsoft Learn)](https://learn.microsoft.com/en-us/sql/t-sql/queries/select-transact-sql)
   Canonical numbered binding order for SELECT clauses. Use for: why aliases fail in WHERE, WHERE vs HAVING, reading complex queries. Physical plans may differ; result must match this logic.
+- [Use The Index, Luke — The WHERE Clause](https://use-the-index-luke.com/sql/where-clause)
+  How predicates drive (or miss) indexes. Use for: equals, ranges, functions, obfuscated conditions.
+- [Use The Index, Luke — Date Types (obfuscation)](https://use-the-index-luke.com/sql/where-clause/obfuscation/dates)
+  Function-on-column date traps and explicit range rewrite. Use for: YEAR/TRUNC/TO_CHAR anti-patterns; portable half-open ranges.
+- [AWS Prescriptive Guidance — Pruning dynamic partitions (Spark)](https://docs.aws.amazon.com/prescriptive-guidance/latest/spark-tuning-glue-emr/pruning-dynamic-partitions.html)
+  DPP and early filters for Glue/EMR Spark. Use for: PartitionFilters in EXPLAIN; fact/dim join pruning.
+- [AWS Prescriptive Guidance — Redshift Spectrum best practices](https://docs.aws.amazon.com/prescriptive-guidance/latest/query-best-practices-redshift/best-practices-redshift-spectrum.html)
+  Partition pruning + predicate pushdown on S3. Use for: partition keys, qualified_partitions checks.
+- [Amazon Redshift — Creating and interpreting a query plan](https://docs.aws.amazon.com/redshift/latest/dg/c-the-query-plan.html)
+  EXPLAIN cost/rows/width, operators, join types, DS_* redistribution. Use for: reading Redshift plans bottom-up.
+- [Spark SQL — EXPLAIN](https://spark.apache.org/docs/latest/sql-ref-syntax-qry-explain.html)
+  Logical/physical plan command. Use for: Glue/Spark EXPLAIN entry point.
+
+
 
 ## Wisdom (Communities)
 
