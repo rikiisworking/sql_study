@@ -42,6 +42,18 @@
   AUTO / EVEN / KEY / ALL definitions. Use for: exact style meanings.
 - [AWS Prescriptive Guidance — Using join hints in Spark SQL](https://docs.aws.amazon.com/prescriptive-guidance/latest/spark-tuning-glue-emr/using-join-hints-in-spark-sql.html)
   BROADCAST / MERGE / SHUFFLE_HASH with example plans. Use for: Glue join strategy choices.
+- [AWS Prescriptive Guidance — Optimize shuffles / Overcome data skew](https://docs.aws.amazon.com/prescriptive-guidance/latest/tuning-aws-glue-for-apache-spark/optimize-shuffles.html)
+  Spark UI Event Timeline + Summary Metrics (max vs median); AQE skew-join flags; composite keys. Use for: Glue/Spark skew diagnosis.
+- [Spark SQL — Optimizing Skew Join](https://spark.apache.org/docs/latest/sql-performance-tuning.html#optimizing-skew-join)
+  Official AQE: split/replicate skewed sort-merge partitions. Use for: exact flags (`adaptive.enabled`, `skewJoin.enabled`).
+- [Amazon Redshift — Data distribution for query optimization](https://docs.aws.amazon.com/redshift/latest/dg/t_Distributing_data.html)
+  Two goals: even work + less movement. Use for: why a hot DISTKEY can win collocation and lose parallelism.
+- [Amazon Redshift — Identifying tables with data skew or unsorted rows](https://docs.aws.amazon.com/redshift/latest/dg/identify-tables-with-data-skew-or-unsorted-rows.html)
+  Official diagnostic query; skew ≥ 4.00 → reconsider dist. Use for: table-level check.
+- [Amazon Redshift — SVV_TABLE_INFO](https://docs.aws.amazon.com/redshift/latest/dg/r_SVV_TABLE_INFO.html)
+  `skew_rows` = max-slice rows / min-slice rows. Use for: quick table skew number.
+- [Amazon Redshift — Using SVL_QUERY_REPORT](https://docs.aws.amazon.com/redshift/latest/dg/using-SVL-Query-Report.html)
+  Per-slice rows and elapsed time. Use for: query skew after a run.
 
 
 

@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lesson 0007 — Join skew (one worker hog)</title>
+  <link rel="stylesheet" href="../assets/lesson.css" />
+  <script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <p class="kicker">Lesson 0007 · Optimization</p>
+      <h1>Slow join? Ask who is waiting</h1>
+      <p class="lead">
+        Lesson 0006 taught you that joins pay for
+        <a href="../reference/glossary.html#shuffle">movement</a>.
+        This lesson: movement can be <em>even and large</em>, or
+        <a href="../reference/glossary.html#skew">skewed</a> —
+        one slice or task owns the clock.
+      </p>
+    </header>
+
+    <p>
+      Mission: when a production join is slow, form a hypothesis
+      (scan / join / shuffle / <strong>skew</strong>), then check
+      evidence. A plan can show an <code>Exchange</code> or
+      <code>DS_DIST_*</code>. Skew usually does not. It shows up
+      at <em>runtime</em>, as one worker still running.
+    </p>
+
+    <h2>Skill for this lesson</h2>
+    <p>
+      Given a slow join, say whether the pain is
+      <strong>even volume</strong> or <strong>skew</strong>,
+      name the evidence, and pick the first lever —
+      not “add workers and hope.”
+    </p>
+
+    <h2>One picture</h2>
+    <p>
+      Two <em>different</em> ways the <strong>same join</strong> can be
+      slow. Each <code>█</code> bar is one worker (Spark task, or
+      Redshift slice) — not a column, and not “half the table.”
+      Wall-clock is the last bar to finish.
+    </p>
+    <pre><code>Shape A — even volume   ████ ████ ████ ████ ████ ████ ████ ████
+  (everyone busy)
+
+Shape B — skew (hog)    ██   ██   ██   ██   ██   ██   ██   ████████████████
+  (one worker still going)</code></pre>
+    <p>
+      “Even” describes the <em>split</em>, not a second kind of
+      data. Shape A can move a lot of bytes and still be even:
+      eight fat bars. Shape B can move the <em>same</em> total
+      bytes and finish later, because one join key (or one slice)
+      ate a partition. Classic hot keys: one huge customer, a
+      default <code>'UNKNOWN'</code>, or a pile of <code>NULL</code>s
+      hashing together.
+    </p>
+    <div class="note">
+      <p>
+        Those are <em>examples of a fat key</em>, not a rule to
+        <code>dropna</code> / <code>fillna</code> before every join.
+        Dropping or filling changes the answer (lessons 0001–0002)
+        unless the question already excludes those rows.
+        <code>fillna('UNKNOWN')</code> often <em>creates</em> the hog:
+        many rows become one real join value.
+        If unmatched/null keys are not part of the question,
+        a deliberate <code>WHERE key IS NOT NULL</code> (or the
+        equivalent filter) shrinks the shuffle with the same meaning.
+        Speed fix after meaning is fixed: broadcast, AQE, or a
+        richer key — not silent cleanup.
+      </p>
+    </div>
+
+    <h2>Spark / Glue: look at the stage, not the SQL</h2>
+    <p>
+      AWS’s Glue tuning guide: on the Spark UI
+      <strong>Stage</strong> page, uneven Event Timeline bars, or
+      Summary Metrics where <strong>Max</strong> duration / size
+      dwarfs the <strong>median</strong>, mean
+      <a href="../reference/glossary.html#skew">data skew</a>.
+      Their example: median task ~13&nbsp;s, max ~6.4&nbsp;min on
+      ~100× the data — that is a hog, not “Spark is just slow.”
+    </p>
+    <p class="cite">
+      <a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/tuning-aws-glue-for-apache-spark/optimize-shuffles.html#overcome-data-skew.06c12491-eaae-597f-adc7-df511a192920">AWS PG — Overcome data skew</a>
+    </p>
+    <p>First levers, in this order:</p>
+    <ol>
+      <li>
+        <strong>Shrink, then broadcast</strong> (lesson 0006).
+        Shrink = fewer <em>rows</em> (<code>WHERE</code> / filter)
+        <em>and</em> fewer <em>columns</em> (<code>SELECT</code>
+        only what the join needs — project). Same meaning, less
+        to ship. If that side then fits in executor memory,
+        broadcast it and you skip shuffling the hot key at all.
+      </li>
+      <li>
+        <strong><a href="../reference/glossary.html#aqe">AQE</a> skew join.</strong>
+        Adaptive Query Execution: Spark re-plans
+        <em>during</em> the job from real sizes, not only the
+        first guess. One of those mid-run tricks is splitting
+        (and replicating if needed) a fat sort-merge partition
+        into more even tasks. Needs
+        <code>spark.sql.adaptive.enabled</code> and
+        <code>spark.sql.adaptive.skewJoin.enabled</code>.
+        Glue 4.0: AQE on by default; Glue 3.0: turn the flag on.
+      </li>
+      <li>
+        <strong>Richer join key</strong> if the business allows
+        it. Richer = the <em>match column(s)</em> have more
+        distinct values, so hashes spread. That can be a
+        different single column (high cardinality) or a
+        <em>composite</em> the question already needs
+        (<code>ON a.id = b.id AND a.day = b.day</code>).
+        Extra predicates you do not mean will drop real
+        matches — correctness first. Official Glue advice,
+        not “add keys for luck.”
+      </li>
+    </ol>
+    <p class="cite">
+      <a href="https://spark.apache.org/docs/latest/sql-performance-tuning.html#optimizing-skew-join">Spark — Optimizing Skew Join</a>
+    </p>
+
+    <h2>Redshift: table skew vs query skew</h2>
+    <p>
+      Redshift states two goals for distribution:
+    </p>
+    <ol>
+      <li><strong>Even work</strong> — rows (and therefore join work) spread across slices.</li>
+      <li><strong>Less movement</strong> — matching join keys already on the same slice (<a href="../reference/glossary.html#collocated-join">collocated</a>, often <code>DS_DIST_NONE</code>).</li>
+    </ol>
+    <p>
+      Those two can fight. Fact and dim both
+      <code>DISTKEY (customer_id)</code> → matching rows already
+      sit together → you <em>win goal 2</em> (no redistrib for
+      that join). If one customer is huge (“MegaCorp”),
+      <em>every</em> MegaCorp fact row lives on <em>one</em>
+      slice → you <em>lose goal 1</em> (that slice is the hog).
+      A collocated <code>DISTKEY</code> that is a hot key:
+      less network, worse parallelism.
+    </p>
+    <table>
+      <thead>
+        <tr><th>Kind</th><th>What is uneven</th><th>Where you look</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><a href="../reference/glossary.html#table-skew">Table skew</a></td>
+          <td>Stored rows piled on few slices</td>
+          <td><code>SVV_TABLE_INFO.skew_rows</code> (max-slice rows ÷ min-slice rows). Diagnostic query: ratio ≥ 4.00 → reconsider dist style.</td>
+        </tr>
+        <tr>
+          <td><a href="../reference/glossary.html#query-skew">Query skew</a></td>
+          <td>This query’s work, after filters</td>
+          <td><code>SVL_QUERY_REPORT</code>: same step, compare <code>rows</code> and <code>elapsed_time</code> across slices.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note">
+      <p>
+        <strong>The date trap</strong> (official checklist, not folklore).
+        <code>DISTKEY</code> on a date can look even on the whole
+        table. Filter “last 7 days” and almost all surviving rows
+        sit on a few slices — query workload is skewed.
+        Pick a key that stays high-cardinality
+        <em>after common filters</em>.
+      </p>
+      <p>
+        <a href="../reference/dist-style.html">Four dist-style pictures</a>
+        ·
+        <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_best-practices-best-dist-key.html">Choose the best distribution style</a>
+        ·
+        <a href="https://docs.aws.amazon.com/redshift/latest/dg/r_SVV_TABLE_INFO.html">SVV_TABLE_INFO</a>
+        ·
+        <a href="https://docs.aws.amazon.com/redshift/latest/dg/using-SVL-Query-Report.html">SVL_QUERY_REPORT</a>
+      </p>
+    </div>
+
+    <h2>Day-job ladder</h2>
+    <ol>
+      <li>See movement on the plan (0005 / 0006).</li>
+      <li>Ask: did <em>one</em> task or slice own the clock?</li>
+      <li>Spark: Stage max vs median. Redshift: <code>skew_rows</code> and/or slice report.</li>
+      <li>Even and huge → shrink / layout / broadcast. Hog → do not just add nodes; fix the key or let AQE split the fat partition.</li>
+      <li>One change → measure the same metric again.</li>
+    </ol>
+    <p>
+      Pocket card:
+      <a href="../reference/skew-signals.html">skew signals</a>.
+    </p>
+
+    <h2>Practice</h2>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Yes. One fat task while siblings are idle is skew — the join key hashed to one partition."
+         data-no="If every task took about the same time, that is even volume. A missing sort key is a different lever.">
+      <h3>Q1. Glue stage: 199 tasks ~8s, one task 12 min. What is this?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">One join key piled onto one task</button></li>
+        <li><button type="button" class="choice" data-i="1">All tasks ran about the same time</button></li>
+        <li><button type="button" class="choice" data-i="2">Sort key miss on this fact table</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Correct. Official trap: date DISTKEY + a narrow date filter piles work on few slices."
+         data-no="Sort key and ALL-on-fact are different levers. The date + range-filter case is query skew.">
+      <h3>Q2. Fact DISTKEY = sale_date; every query is “last 7 days.” Risk?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Query work piles onto few slices</button></li>
+        <li><button type="button" class="choice" data-i="1">Sort key becomes the only lever</button></li>
+        <li><button type="button" class="choice" data-i="2">ALL distribution on the fact now</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Right. Skew is a runtime picture — Spark UI stage metrics, not a guess from SQL text."
+         data-no="More workers will not split a single hot key. DynamoDB is not the SQL path.">
+      <h3>Q3. First check that a Glue join is skewed?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Spark UI max vs median duration</button></li>
+        <li><button type="button" class="choice" data-i="1">Add more Glue workers at random</button></li>
+        <li><button type="button" class="choice" data-i="2">Move this job onto DynamoDB now</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Yes. skew_rows is max-slice rows over min-slice rows — the table-level skew check."
+         data-no="EXPLAIN ANALYZE is a full run (lesson 0005). AQE is Spark, not the Redshift table check.">
+      <h3>Q4. First Redshift check for stored table skew?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Read SVV_TABLE_INFO for skew_rows</button></li>
+        <li><button type="button" class="choice" data-i="1">Fire EXPLAIN ANALYZE every write</button></li>
+        <li><button type="button" class="choice" data-i="2">Blame AQE for all Glue jobs</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Correct. Broadcast after shrink avoids shuffling the hot key. Salting is later; date DISTKEY is the trap."
+         data-no="Do not salt first. Do not pick sale_date as DISTKEY when queries are date-range filtered.">
+      <h3>Q5. Spark join, one side can get small. First lever?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Shrink dim then try broadcast join</button></li>
+        <li><button type="button" class="choice" data-i="1">Salt every key on first attempt</button></li>
+        <li><button type="button" class="choice" data-i="2">Pick sale_date as the DISTKEY now</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <h2>Primary source (read ~15 min)</h2>
+    <p>
+      <a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/tuning-aws-glue-for-apache-spark/optimize-shuffles.html#overcome-data-skew.06c12491-eaae-597f-adc7-df511a192920">AWS PG — Overcome data skew</a>
+      (Spark UI pictures + AQE flags).
+      Then the short Redshift pair:
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_best-practices-best-dist-key.html">dist-key checklist (cardinality / date)</a>
+      and
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/using-SVL-Query-Report.html">SVL_QUERY_REPORT slice check</a>.
+    </p>
+
+    <h2>Done when</h2>
+    <ul>
+      <li>You can separate “shuffle is big” from “one worker hog”</li>
+      <li>You name Spark UI max-vs-median, or Redshift <code>skew_rows</code> / slice report, as evidence</li>
+      <li>You try shrink→broadcast or a better key before adding cluster size</li>
+    </ul>
+
+    <footer class="site">
+      <p><strong>Ask follow-ups.</strong> Paste a Spark UI stage summary (max / median / records) or a Redshift <code>skew_rows</code> / slice report — we name the hog and one lever.</p>
+      <p>No SQLite drill: skew is runtime physics. Next: live work EXPLAIN, or Aurora dialect once known.</p>
+      <ul>
+        <li><a href="0006-data-movement-dist-shuffle.html">← Lesson 0006 (data movement)</a></li>
+        <li><a href="../reference/skew-signals.html">Skew signals</a></li>
+        <li><a href="../reference/dist-style.html">Dist-style pictures</a></li>
+        <li><a href="../reference/plan-labels.html">Plan labels</a></li>
+        <li><a href="../reference/glossary.html#skew">Glossary: skew</a> ·
+            <a href="../reference/glossary.html#table-skew">table skew</a> ·
+            <a href="../reference/glossary.html#query-skew">query skew</a></li>
+        <li><a href="../MISSION.md">Mission</a></li>
+        <li><a href="../RESOURCES.md">Resources</a></li>
+      </ul>
+    </footer>
+  </div>
+</body>
+</html>

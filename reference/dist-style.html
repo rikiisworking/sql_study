@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Redshift distribution style — SQL Study</title>
+  <link rel="stylesheet" href="../assets/lesson.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <p class="kicker">Reference</p>
+      <h1>Four dist-style pictures</h1>
+      <p class="lead">
+        Visual map of
+        <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_best-practices-best-dist-key.html">Choose the best distribution style</a>.
+        Each box is one <strong>slice</strong> (a worker with its own rows).
+      </p>
+    </header>
+
+    <p class="legend">
+      <span class="chip fact" style="display:inline;padding:0.05rem 0.35rem">fact row</span>
+      <span class="chip dim" style="display:inline;padding:0.05rem 0.35rem">collocated dim</span>
+      <span class="chip move" style="display:inline;padding:0.05rem 0.35rem">must move to join</span>
+      <span class="chip hot" style="display:inline;padding:0.05rem 0.35rem">hot / filtered pile</span>
+    </p>
+
+    <h2>0. The constraint: one DISTKEY on the fact</h2>
+    <p>
+      A fact table gets <em>one</em> distribution column. Only joins
+      on that column can be collocated. Every other dim must move
+      (or be <code>ALL</code>).
+    </p>
+    <pre class="flow"><code>          customers          products          stores
+               \                 |                 /
+                \                |                /
+                 +------- fact.DISTKEY = ? ------+
+                              only one</code></pre>
+
+    <h2>1. Collocate fact + one dim on the shared key</h2>
+    <p>
+      Put the dim’s primary key and the fact’s matching foreign key
+      as <code>DISTKEY</code>. Same <code>customer_id</code> hashes
+      to the same slice → join stays local.
+    </p>
+    <div class="cluster" aria-label="Collocated join on customer_id">
+      <div class="slice">
+        <span class="lab">Slice 0</span>
+        <span class="chip fact">order cust=2</span>
+        <span class="chip fact">order cust=2</span>
+        <span class="chip dim">cust 2</span>
+      </div>
+      <div class="slice">
+        <span class="lab">Slice 1</span>
+        <span class="chip fact">order cust=5</span>
+        <span class="chip dim">cust 5</span>
+      </div>
+      <div class="slice">
+        <span class="lab">Slice 2</span>
+        <span class="chip fact">order cust=8</span>
+        <span class="chip fact">order cust=8</span>
+        <span class="chip dim">cust 8</span>
+      </div>
+    </div>
+    <p>
+      Join to <em>products</em> on <code>product_id</code> is
+      <em>not</em> collocated. Those dim rows must be shipped
+      (or the dim is <code>ALL</code> — rule 4).
+    </p>
+    <div class="cluster" aria-label="Other dim must move">
+      <div class="slice">
+        <span class="lab">Slice 0</span>
+        <span class="chip fact">order prod=9</span>
+        <span class="chip move">need prod 9 →</span>
+      </div>
+      <div class="slice">
+        <span class="lab">Slice 1</span>
+        <span class="chip dim">prod 9 lives here</span>
+      </div>
+      <div class="slice">
+        <span class="lab">Slice 2</span>
+        <span class="chip ghost">no prod 9</span>
+      </div>
+    </div>
+    <p>
+      Which dim gets the one fact DISTKEY? The one you join
+      <strong>most often</strong>, with the
+      <strong>largest joining rows</strong> (next rule).
+    </p>
+
+    <h2>2. Pick the largest dim <em>after the filter</em></h2>
+    <p>
+      This rule is about <strong>who spends the one DISTKEY</strong>,
+      not “smaller leftover is better.”
+      Moving 800&nbsp;000 rows every night is expensive.
+      Moving (or <code>ALL</code>-copying) 200 rows is cheap.
+      So you collocate with the side that is still
+      <em>large after</em> <code>WHERE</code>.
+      The 200-row side is the easy one — do not spend DISTKEY on it.
+    </p>
+    <pre class="flow"><code>products table     50,000,000 rows
+  WHERE active      →        200 rows   ← cheap to ALL / broadcast
+customers table     2,000,000 rows
+  WHERE region=east →    800,000 rows   ← expensive to move → DISTKEY here
+
+Collocate fact + customers (the large filtered side).
+ALL or broadcast the 200 products.</code></pre>
+    <table>
+      <thead>
+        <tr><th>After typical filters</th><th>What you do</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Still huge (800&nbsp;000 customers)</td>
+          <td>Spend the fact <code>DISTKEY</code> here — avoid shipping that pile</td>
+        </tr>
+        <tr>
+          <td>Shrinks to tiny (200 SKUs)</td>
+          <td><code>ALL</code> / broadcast — do <em>not</em> use the one DISTKEY on this</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>3. High cardinality in the <em>filtered</em> set</h2>
+    <p>
+      Many distinct values, still even <em>after</em> the usual
+      predicates. Date as DISTKEY often looks even on the whole
+      table, then “last 7 days” piles work on two slices.
+    </p>
+    <p><strong>Stored table (looks fine)</strong></p>
+    <div class="cluster" aria-label="Date dist looks even">
+      <div class="slice"><span class="lab">Slice 0</span><span class="chip fact">Jan</span><span class="chip fact">May</span></div>
+      <div class="slice"><span class="lab">Slice 1</span><span class="chip fact">Feb</span><span class="chip fact">Jun</span></div>
+      <div class="slice"><span class="lab">Slice 2</span><span class="chip fact">Mar</span><span class="chip fact">Jul</span></div>
+      <div class="slice"><span class="lab">Slice 3</span><span class="chip fact">Apr</span><span class="chip fact">Aug</span></div>
+    </div>
+    <p><strong>Same table, query = last week (only late Aug)</strong></p>
+    <div class="cluster" aria-label="Date filter skews work">
+      <div class="slice"><span class="lab">Slice 0</span><span class="chip ghost">Jan — skip</span></div>
+      <div class="slice"><span class="lab">Slice 1</span><span class="chip ghost">Feb — skip</span></div>
+      <div class="slice"><span class="lab">Slice 2</span><span class="chip ghost">Mar — skip</span></div>
+      <div class="slice"><span class="lab">Slice 3</span><span class="chip hot">Aug 11–17 (all of it)</span></div>
+    </div>
+    <p>
+      That is <a href="glossary.html#query-skew">query skew</a>.
+      Prefer a key that stays spread after the filter
+      (often a customer / order id, not the date you always range).
+    </p>
+
+    <h2>4. ALL for dims that cannot share the fact key</h2>
+    <p>
+      Copy the whole (small) dim onto <em>every</em> node. Every
+      slice can join locally. Cost: storage × nodes, slower loads.
+    </p>
+    <div class="cluster" aria-label="DISTSTYLE ALL copies the dim">
+      <div class="slice">
+        <span class="lab">Slice 0</span>
+        <span class="chip fact">fact…</span>
+        <span class="chip dim">full dim copy</span>
+      </div>
+      <div class="slice">
+        <span class="lab">Slice 1</span>
+        <span class="chip fact">fact…</span>
+        <span class="chip dim">full dim copy</span>
+      </div>
+      <div class="slice">
+        <span class="lab">Slice 2</span>
+        <span class="chip fact">fact…</span>
+        <span class="chip dim">full dim copy</span>
+      </div>
+    </div>
+    <p>
+      Use for small, slow-changing lookups you join many ways.
+      Do not ALL a huge fact (lesson 0006 Q2).
+    </p>
+
+    <h2>How to read the official list as one decision</h2>
+    <ol>
+      <li>Name the join you run most on the large leftover rows.</li>
+      <li><code>DISTKEY</code> fact FK + that dim PK on that column.</li>
+      <li>Check: after typical filters, is the key still even? If not, pick another column.</li>
+      <li>Other small dims: <code>ALL</code> (or Spark-style broadcast). Other large dims: accept redistrib, or a different table design.</li>
+    </ol>
+
+    <p class="cite">
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_best-practices-best-dist-key.html">AWS — Choose the best distribution style</a>
+      ·
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/t_Distributing_data.html">Data distribution goals</a>
+    </p>
+
+    <footer class="site">
+      <p>
+        <a href="glossary.html#dist-key">Glossary</a> ·
+        <a href="skew-signals.html">Skew signals</a> ·
+        <a href="../lessons/0006-data-movement-dist-shuffle.html">Lesson 0006</a> ·
+        <a href="../lessons/0007-join-skew-one-worker.html">Lesson 0007</a>
+      </p>
+    </footer>
+  </div>
+</body>
+</html>

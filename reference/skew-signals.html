@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Skew signals — SQL Study</title>
+  <link rel="stylesheet" href="../assets/lesson.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <p class="kicker">Reference</p>
+      <h1>Skew signals</h1>
+      <p class="lead">
+        Pocket card for
+        <a href="../lessons/0007-join-skew-one-worker.html">lesson 0007</a>.
+        Plans show movement. Skew shows up as one worker still running.
+      </p>
+    </header>
+
+    <h2>Even volume vs hog</h2>
+    <table>
+      <thead><tr><th></th><th>Even volume</th><th>Skew (hog)</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Picture</td>
+          <td>All tasks/slices finish together; bars similar (maybe all fat)</td>
+          <td>Most idle; one bar owns wall-clock. Same total bytes possible.</td>
+        </tr>
+        <tr>
+          <td>Plan</td>
+          <td><code>Exchange</code> / <code>DS_DIST_*</code> everywhere</td>
+          <td>Same labels — plan usually will not name the hog</td>
+        </tr>
+        <tr>
+          <td>First lever</td>
+          <td>Shrink, layout, broadcast</td>
+          <td>Fix the key, split the fat partition, or skip the shuffle</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Spark / Glue</h2>
+    <table>
+      <thead><tr><th>Look at</th><th>Skew looks like</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Stage → Event Timeline</td>
+          <td>One (or few) tasks far longer than the rest</td>
+        </tr>
+        <tr>
+          <td>Stage → Summary Metrics</td>
+          <td>Max duration / records / spill ≫ median (and 75th)</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>Levers (stop at the first that fits):</p>
+    <ol>
+      <li>Filter/project, then broadcast the small side</li>
+      <li>AQE skew join: <code>spark.sql.adaptive.enabled</code> + <code>spark.sql.adaptive.skewJoin.enabled</code> (Glue 4: AQE default on)</li>
+      <li>Higher-cardinality or composite join key, if the question allows it</li>
+    </ol>
+    <p class="cite">
+      <a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/tuning-aws-glue-for-apache-spark/optimize-shuffles.html#overcome-data-skew.06c12491-eaae-597f-adc7-df511a192920">AWS PG — Overcome data skew</a>
+      ·
+      <a href="https://spark.apache.org/docs/latest/sql-performance-tuning.html#optimizing-skew-join">Spark — Optimizing Skew Join</a>
+    </p>
+
+    <h2>Redshift</h2>
+    <table>
+      <thead><tr><th>Kind</th><th>Check</th><th>Rule of thumb</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Table skew</td>
+          <td><code>SELECT "table", diststyle, skew_rows FROM svv_table_info;</code></td>
+          <td><code>skew_rows</code> = max-slice rows ÷ min-slice rows. Diagnostic query treats ≥ 4.00 as “reconsider dist.”</td>
+        </tr>
+        <tr>
+          <td>Query skew</td>
+          <td><code>SVL_QUERY_REPORT</code> for the query id; same segment/step, compare <code>rows</code> and <code>elapsed_time</code> across slices</td>
+          <td>Large slice gaps ⇒ this query’s work is uneven (even if the table looks even)</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      <strong>Date trap:</strong> <code>DISTKEY</code> on a date + “last N days” filter
+      → few slices do the work. Prefer a key that stays even
+      <em>after</em> the usual predicates.
+    </p>
+    <p class="cite">
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/r_SVV_TABLE_INFO.html">SVV_TABLE_INFO</a>
+      ·
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/identify-tables-with-data-skew-or-unsorted-rows.html">Identify tables with data skew</a>
+      ·
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/using-SVL-Query-Report.html">SVL_QUERY_REPORT</a>
+      ·
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/c_best-practices-best-dist-key.html">Dist-key checklist</a>
+    </p>
+
+    <footer class="site">
+      <p>
+        <a href="glossary.html#skew">Glossary</a> ·
+        <a href="plan-labels.html">Plan labels</a> ·
+        <a href="../lessons/0007-join-skew-one-worker.html">Lesson 0007</a> ·
+        <a href="../lessons/0006-data-movement-dist-shuffle.html">Lesson 0006</a>
+      </p>
+    </footer>
+  </div>
+</body>
+</html>

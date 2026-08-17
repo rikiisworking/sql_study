@@ -25,7 +25,8 @@
 4. Predicates that engines can use (sargable / partition prune / pushdown) — lesson 0004 ✓
 5. Plans: EXPLAIN basics (PG map + Redshift/Spark labels) — lesson 0005 ✓
 6. Data movement: Redshift dist/sort; Spark broadcast vs shuffle — lesson 0006 ✓ (vocab Q&A; see LR-0008)
-7. Next candidates: live work EXPLAIN walkthrough · join skew · Aurora dialect EXPLAIN
+7. Join skew (one worker hog vs even volume) — lesson 0007 ✓ (await retrieval evidence)
+8. Next candidates: live work EXPLAIN walkthrough · Aurora dialect EXPLAIN
 
 ## Open question
 - Aurora dialect: MySQL vs PostgreSQL — still unknown; deep vendor EXPLAIN after known.

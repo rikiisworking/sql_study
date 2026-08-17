@@ -209,6 +209,56 @@ footer.site ul { padding-left: 1.1rem; }
   color: var(--muted);
 }
 
+/* Slice / cluster diagrams (lessons + reference) */
+.cluster {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 0.5rem 0 1rem;
+  max-width: 48rem;
+}
+.slice {
+  flex: 1 1 6rem;
+  min-width: 5.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.4rem 0.45rem 0.5rem;
+  background: #fff;
+  font-size: 0.75rem;
+  font-family: var(--mono);
+  line-height: 1.35;
+}
+.slice .lab {
+  display: block;
+  color: var(--muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 0.3rem;
+}
+.chip {
+  display: block;
+  border-radius: 3px;
+  padding: 0.12rem 0.3rem;
+  margin: 0.14rem 0;
+}
+.chip.fact { background: #d6eaf3; }
+.chip.dim { background: #d5f0d8; }
+.chip.hot { background: #f8d0d0; }
+.chip.move { background: #f5e6c8; }
+.chip.ghost { background: #eee; color: var(--muted); }
+.legend {
+  font-size: 0.85rem;
+  color: var(--muted);
+  max-width: var(--max);
+  margin: 0 0 1rem;
+}
+.flow {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  max-width: 48rem;
+}
+
 @media print {
   body { background: #fff; }
   .quiz button.choice { border: 1px solid #999; }

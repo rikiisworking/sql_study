@@ -80,10 +80,22 @@
     <p class="cite"><a href="https://spark.apache.org/docs/latest/sql-ref-syntax-qry-explain.html">EXPLAIN</a> ·
       <a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/spark-tuning-glue-emr/using-join-hints-in-spark-sql.html">Join hints</a></p>
 
+    <h2>Skew is not a plan label</h2>
+    <p>
+      <code>Exchange</code> and <code>DS_DIST_*</code> mean data
+      <em>moved</em>. They do not tell you one worker hogged the clock.
+      For that, use runtime metrics — Spark UI stage max vs median,
+      Redshift <code>skew_rows</code> / <code>SVL_QUERY_REPORT</code>.
+      See <a href="skew-signals.html">skew signals</a>
+      and <a href="../lessons/0007-join-skew-one-worker.html">lesson 0007</a>.
+    </p>
+
     <footer class="site">
       <p><a href="glossary.html">Glossary</a> ·
+        <a href="skew-signals.html">Skew signals</a> ·
         <a href="../lessons/0005-explain-plan-basics.html">Lesson 0005</a> ·
-        <a href="../lessons/0006-data-movement-dist-shuffle.html">Lesson 0006</a></p>
+        <a href="../lessons/0006-data-movement-dist-shuffle.html">Lesson 0006</a> ·
+        <a href="../lessons/0007-join-skew-one-worker.html">Lesson 0007</a></p>
     </footer>
   </div>
 </body>

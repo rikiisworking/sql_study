@@ -54,7 +54,7 @@
       <dd>Redistributing data across workers so a join or aggregation can complete. Often the expensive part of Spark SQL / Glue jobs.</dd>
 
       <dt id="dist-key"><strong>Distribution key</strong> / <strong>distribution style</strong> (Redshift)</dt>
-      <dd>How rows are placed across nodes/slices. Styles: <code>KEY</code> (hash one column), <code>ALL</code> (full copy per node), <code>EVEN</code> (round-robin), <code>AUTO</code> (engine chooses). Same dist key on both sides of a frequent equijoin → collocated join, less redistrib. See lesson 0006.</dd>
+      <dd>How rows are placed across nodes/slices. Styles: <code>KEY</code> (hash one column), <code>ALL</code> (full copy per node), <code>EVEN</code> (round-robin), <code>AUTO</code> (engine chooses). Same dist key on both sides of a frequent equijoin → collocated join, less redistrib. See lesson 0006 and <a href="dist-style.html">four dist-style pictures</a>.</dd>
 
       <dt id="sort-key"><strong>Sort key</strong> (Redshift)</dt>
       <dd>Physical row order on disk. Range/equality predicates can skip blocks via per-block min/max. Not the same lever as dist key (order vs placement). See lesson 0006.</dd>
@@ -64,6 +64,24 @@
 
       <dt id="collocated-join"><strong>Collocated join</strong></dt>
       <dd>Matching join keys already on the same slice/node so the engine need not redistribute for that join. Redshift signal: <code>DS_DIST_NONE</code>.</dd>
+
+      <dt id="skew"><strong>Skew</strong> (data skew)</dt>
+      <dd>Uneven work: one Redshift slice or one Spark shuffle partition/task holds far more rows or time than its siblings. Wall-clock follows the slowest worker. Not the same as an evenly large shuffle. See <a href="skew-signals.html">skew signals</a> and lesson 0007.</dd>
+
+      <dt id="table-skew"><strong>Table skew</strong></dt>
+      <dd>Stored rows piled on few Redshift slices. Check <code>SVV_TABLE_INFO.skew_rows</code> (max-slice rows ÷ min-slice rows). Official diagnostic query treats a ratio of 4.00 or higher as a reason to reconsider distribution style.</dd>
+
+      <dt id="query-skew"><strong>Query skew</strong></dt>
+      <dd>This query’s work is uneven after filters/joins, even if the table looks even. Classic: <code>DISTKEY</code> on a date plus a narrow date range. Check <code>SVL_QUERY_REPORT</code> rows and elapsed time per slice.</dd>
+
+      <dt id="aqe"><strong>AQE</strong> (Adaptive Query Execution)</dt>
+      <dd>Spark re-optimizes the plan <em>while the query runs</em>, using measured sizes instead of only the planner’s first guess. Default on since Spark 3.2 / Glue 4. Main tricks: coalesce tiny shuffle partitions, flip a sort-merge join to broadcast if a side turns out small, and split a skewed join partition. Flag: <code>spark.sql.adaptive.enabled</code>.</dd>
+
+      <dt id="richer-join-key"><strong>Richer join key</strong></dt>
+      <dd>A join match with higher cardinality (more distinct values), so shuffle hashes spread. May be one high-cardinality column or a composite the question already requires. Not “add extra join columns for speed” — extra predicates change which rows match. See lesson 0007.</dd>
+
+      <dt id="aqe-skew-join"><strong>AQE skew join</strong></dt>
+      <dd>The AQE feature that splits (and may replicate) fat sort-merge-join partitions into more even tasks. Needs <code>spark.sql.adaptive.enabled</code> and <code>spark.sql.adaptive.skewJoin.enabled</code>.</dd>
 
       <dt id="3vl"><strong>Three-valued logic (3VL)</strong></dt>
       <dd>SQL truth values: <code>TRUE</code>, <code>FALSE</code>, <code>UNKNOWN</code>. <code>NULL</code> comparisons yield <code>UNKNOWN</code>; <code>WHERE</code> keeps only <code>TRUE</code>.</dd>
