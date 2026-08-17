@@ -1,0 +1,1 @@
+SELECT 'distkey' AS next;

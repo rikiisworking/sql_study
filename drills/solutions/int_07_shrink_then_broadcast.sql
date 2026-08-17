@@ -1,0 +1,1 @@
+SELECT 'shrink' AS next;

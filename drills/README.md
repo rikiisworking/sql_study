@@ -1,6 +1,6 @@
-# Drills (lessons 0001–0003)
+# Drills
 
-Runnable SQLite practice. Edit `cases/*/query.sql`, re-run checker until green.
+Runnable SQLite practice. Fill functions (or `query` in older CASES files). Re-run until green.
 
 ## Setup (once)
 
@@ -19,41 +19,48 @@ Runner needs only stdlib (`sqlite3`). `requirements.txt` is empty of packages on
 ```bash
 source .venv/bin/activate   # if not already
 
-# all cases (pass/fail vs expected.csv)
-python drills/check.py
+# lessons 0001–0003 (pass/fail per case)
+python3 drills/drill-01-03.py
 
 # one case (full name or substring)
-python drills/check.py l1_01
-python drills/check.py l2_01_not_cancelled
+python3 drills/drill-01-03.py l1_01
+python3 drills/drill-01-03.py l2_01_not_cancelled
 
 # print result only (no pass/fail)
-python drills/run.py l1_01
-```
+python3 drills/drill-01-03.py --print l1_01
 
+# all lessons stacked (own seed; write each query)
+python3 drills/drill-integrated.py
+python3 drills/drill-integrated.py int_01
+
+# every drill-*.py (optional)
+python3 drills/check.py
+```
 
 ## Loop
 
-1. Open a case `query.sql` — task is in the `--` comments.
-2. Write a query that returns the shape in `expected.csv` (column names + rows, exact order).
-3. `python3 drills/check.py <case>`
-4. Fail → fix SQL → repeat.
+1. Open the drill file — mission is the function docstring.
+2. `return """SELECT ..."""` (column names + row order from the docstring).
+3. `python3 drills/drill-integrated.py <case>`
+4. Fail → fix SQL → repeat. Peek `drills/solutions/<fn>.sql` only when stuck.
 
 ## Layout
 
 | Path | Role |
 |------|------|
-| `seed.sql` | Shared tables + data (do not change for normal practice) |
-| `cases/<name>/query.sql` | **You edit this** |
-| `cases/<name>/expected.csv` | Oracle result (header = column names) |
-| `check.py` | Runner |
+| `seeds/seed.sql` | L1–L3 tables + data (do not change for normal practice) |
+| `drill-01-03.py` | L1–L3 — **return SQL from each function** |
+| `seeds/seed-integrated.sql` | Richer shop for the stacked drill |
+| `drill-integrated.py` | Lessons 0001–0006 — **return SQL from each function** |
+| `solutions/<case>.sql` | Solutions — do not open until stuck |
+| `check.py` | Engine (+ optional run-all) |
 
-## Case map
+## Case map (drill-01-03.py)
 
 | Case | Skill |
 |------|--------|
 | `l1_01_safe_revenue` | Fan-out: safe order revenue |
 | `l1_02_units_by_customer` | Sum at item grain |
-| `l1_03_fix_inflated_revenue` | Spot + fix inflated `SUM(amount)` |
 | `l2_01_not_cancelled` | `NOT IN` trap → `NOT EXISTS` |
 | `l2_02_null_status` | `IS NULL` not `= NULL` |
 | `l2_03_left_join_sku_a` | Right filter in `ON` vs `WHERE` |
@@ -61,4 +68,16 @@ python drills/run.py l1_01
 | `l3_02_paid_sum_by_customer` | `WHERE` vs `HAVING` |
 | `l3_03_repeat_customers` | Full logical walk |
 
-Starters are wrong or stubs on purpose — first run should fail.
+## Case map (drill-integrated.py)
+
+Same shop, extra rows + `order_date`. Qualifying = 2024 + paid + not cancelled.
+
+| Case | Skills stacked |
+|------|----------------|
+| `int_01_qualifying_orders` | Sargable date + `NOT EXISTS` + paid (NULL status out) |
+| `int_02_safe_revenue` | Order grain: no item-join fan-out |
+| `int_03_east_having` | Dim filter + `WHERE` vs `HAVING` + grain |
+| `int_04_sku_a_optional` | `LEFT JOIN` predicate in `ON` |
+| `int_05_big_lines` | Logical order: filter expression, not `SELECT` alias |
+| `int_06_dist_not_index` | Recall: `DS_DIST_BOTH` → `DISTKEY`, not index |
+| `int_07_shrink_then_broadcast` | Recall: shrink dim before broadcast |

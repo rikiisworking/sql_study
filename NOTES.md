@@ -43,6 +43,9 @@
 
 
 ## Drill loop
-- `python3 drills/run.py <case>` — see result
-- `python3 drills/check.py [case]` — pass/fail vs expected
+- `python3 drills/drill-01-03.py` — pass/fail each L1–L3 case
+- `python3 drills/drill-01-03.py <case>` — one case
+- `python3 drills/drill-01-03.py --print <case>` — see result, no oracle
+- `python3 drills/drill-integrated.py` — 0001–0006 stacked; functions + docstring mission (pyspark exercise shape)
+- Later isolated lessons: `python3 drills/drill-04.py` (one file per lesson) if needed
 
