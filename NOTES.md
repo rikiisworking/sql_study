@@ -26,7 +26,8 @@
 5. Plans: EXPLAIN basics (PG map + Redshift/Spark labels) — lesson 0005 ✓
 6. Data movement: Redshift dist/sort; Spark broadcast vs shuffle — lesson 0006 ✓ (vocab Q&A; see LR-0008)
 7. Join skew (one worker hog vs even volume) — lesson 0007 ✓ (await retrieval evidence)
-8. Next candidates: live work EXPLAIN walkthrough · Aurora dialect EXPLAIN
+8. Latest / current row per key (`ROW_NUMBER` + tiebreaker) — lesson 0008 ✓ (await retrieval evidence)
+9. Next candidates: live work EXPLAIN walkthrough · Aurora dialect EXPLAIN · window frames (LAG / running) only if day-job needs them
 
 ## Open question
 - Aurora dialect: MySQL vs PostgreSQL — still unknown; deep vendor EXPLAIN after known.

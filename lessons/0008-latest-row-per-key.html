@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lesson 0008 — Latest row per key</title>
+  <link rel="stylesheet" href="../assets/lesson.css" />
+  <script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <p class="kicker">Lesson 0008 · Write the current row</p>
+      <h1>One current row per key</h1>
+      <p class="lead">
+        Optimization (0004–0007) can wait on a live plan.
+        Day-one write work: CDC snapshots, “latest status,”
+        dedup. Same
+        <a href="../reference/glossary.html#grain">grain</a>
+        question as lesson 0001 — now the table already has
+        many versions of one entity.
+      </p>
+    </header>
+
+    <p>
+      Mission: write production SQL that matches the question.
+      The question here is “one row per customer, the newest
+      version, every column of that version.”
+      <code>GROUP BY customer_id</code> cannot do that: it
+      collapses rows and will not let you pick
+      <code>status</code> unless you also decide a rule for
+      every other column.
+    </p>
+
+    <h2>Skill for this lesson</h2>
+    <p>
+      Write a
+      <a href="../reference/glossary.html#window-function">window</a>
+      that numbers versions inside a key, then keep
+      <code>row_number = 1</code> — and name a
+      <strong>tiebreaker</strong> so “latest” is one row, not a coin flip.
+    </p>
+
+    <h2>Tiny dataset</h2>
+    <p><code>events</code> — grain today: <strong>one row per event</strong>. You want: <strong>one row per customer</strong>.</p>
+    <table>
+      <thead>
+        <tr><th>customer_id</th><th>event_id</th><th>updated_at</th><th>status</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>10</td><td>1</td><td>2024-01-01</td><td>new</td></tr>
+        <tr><td>10</td><td>2</td><td>2024-06-01</td><td>active</td></tr>
+        <tr><td>10</td><td>3</td><td>2024-06-01</td><td>closed</td></tr>
+        <tr><td>20</td><td>4</td><td>2024-03-01</td><td>new</td></tr>
+      </tbody>
+    </table>
+    <p>
+      Customer 10 has two events on the same day.
+      “Latest date” is not enough to pick a winner.
+    </p>
+
+    <h2>Window ≠ GROUP BY</h2>
+    <p>
+      PostgreSQL’s tutorial: a window calculates across related
+      rows, but <em>rows keep their identities</em>.
+      <code>GROUP BY</code> collapses; <code>OVER</code> annotates.
+    </p>
+    <p class="cite">
+      <a href="https://www.postgresql.org/docs/current/tutorial-window.html">PostgreSQL — 3.5. Window Functions</a>
+    </p>
+    <pre><code>ROW_NUMBER() OVER (
+  PARTITION BY customer_id          -- reset here = wanted grain
+  ORDER BY updated_at DESC,
+           event_id   DESC          -- who wins; make it unique
+) AS rn</code></pre>
+    <p>
+      After this, you still have <strong>four</strong> rows.
+      Numbers:
+    </p>
+    <table>
+      <thead>
+        <tr><th>customer_id</th><th>event_id</th><th>status</th><th>rn</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>10</td><td>3</td><td>closed</td><td>1</td></tr>
+        <tr><td>10</td><td>2</td><td>active</td><td>2</td></tr>
+        <tr><td>10</td><td>1</td><td>new</td><td>3</td></tr>
+        <tr><td>20</td><td>4</td><td>new</td><td>1</td></tr>
+      </tbody>
+    </table>
+    <p>
+      Keep <code>rn = 1</code> → customers 10 and 20, statuses
+      <code>closed</code> and <code>new</code>.
+      Omit <code>PARTITION BY</code> and the whole table is one
+      partition: only event 3 survives.
+    </p>
+    <div class="note">
+      <p>
+        <strong>Ties.</strong> Redshift: equal
+        <code>ORDER BY</code> values get
+        <em>different</em> row numbers, order
+        <em>nondeterministic</em>.
+        PostgreSQL says the same for
+        <code>row_number</code> on peers.
+        If two updates share a timestamp, add a unique column
+        (here <code>event_id</code>) or you will pick a
+        different “current” row on two runs.
+      </p>
+      <p class="cite">
+        <a href="https://docs.aws.amazon.com/redshift/latest/dg/r_WF_ROW_NUMBER.html">Redshift — ROW_NUMBER</a>
+        ·
+        <a href="https://www.postgresql.org/docs/current/tutorial-window.html">PG tutorial (tied rows unspecified)</a>
+      </p>
+    </div>
+
+    <h2>Filter after the window (lesson 0003 again)</h2>
+    <p>
+      Windows run on the virtual table after
+      <code>WHERE</code> / <code>GROUP BY</code> / <code>HAVING</code>.
+      They are allowed in <code>SELECT</code> and
+      <code>ORDER BY</code>, not in <code>WHERE</code>.
+      To keep <code>rn = 1</code>, wrap:
+    </p>
+    <pre><code>WITH ranked AS (
+  SELECT
+    customer_id, event_id, updated_at, status,
+    ROW_NUMBER() OVER (
+      PARTITION BY customer_id
+      ORDER BY updated_at DESC, event_id DESC
+    ) AS rn
+  FROM events
+)
+SELECT customer_id, event_id, updated_at, status
+FROM ranked
+WHERE rn = 1;</code></pre>
+    <p class="cite">
+      Same shape in the PG tutorial (subquery, then
+      <code>WHERE pos &lt; 3</code>).
+      Portable across Aurora (PG or MySQL 8), Redshift, Glue.
+    </p>
+
+    <h2>The MAX-join lookalike</h2>
+    <pre><code>SELECT e.*
+FROM events e
+JOIN (
+  SELECT customer_id, MAX(updated_at) AS max_ts
+  FROM events
+  GROUP BY customer_id
+) t
+  ON  e.customer_id = t.customer_id
+  AND e.updated_at  = t.max_ts;</code></pre>
+    <p>
+      Customer 10 still has <strong>two</strong> rows
+      (<code>active</code> and <code>closed</code>).
+      You asked for one current row; the join kept every
+      row that shares the max timestamp —
+      <a href="../reference/glossary.html#fan-out">fan-out</a>
+      by tie. <code>RANK() = 1</code> has the same hole.
+      <code>ROW_NUMBER</code> always emits one
+      <code>1</code> per partition.
+    </p>
+
+    <h2>QUALIFY — sugar, not the default</h2>
+    <p>
+      <a href="../reference/glossary.html#qualify">QUALIFY</a>
+      is <code>HAVING</code> for windows: filter after the
+      window, no subquery. Markus Winand: not in today’s
+      SQL standard; the portable form is the subquery above.
+    </p>
+    <pre><code>SELECT customer_id, event_id, updated_at, status
+FROM events
+QUALIFY ROW_NUMBER() OVER (
+  PARTITION BY customer_id
+  ORDER BY updated_at DESC, event_id DESC
+) = 1;</code></pre>
+    <table>
+      <thead>
+        <tr><th>Engine</th><th>QUALIFY?</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Redshift</td><td>Yes</td></tr>
+        <tr><td>Spark 3.4+ (Glue 5.x = Spark 3.5)</td><td>Yes</td></tr>
+        <tr><td>Glue 4.0 (Spark 3.3)</td><td>No — use the CTE</td></tr>
+        <tr><td>Aurora PostgreSQL / MySQL</td><td>No — use the CTE</td></tr>
+      </tbody>
+    </table>
+    <p class="cite">
+      <a href="https://modern-sql.com/caniuse/qualify">modern-sql — QUALIFY</a>
+      ·
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/r_QUALIFY_clause.html">Redshift QUALIFY</a>
+      ·
+      <a href="https://docs.aws.amazon.com/glue/latest/dg/release-notes.html">Glue versions (Spark map)</a>
+    </p>
+    <p>
+      Pocket card:
+      <a href="../reference/latest-per-key.html">latest-per-key</a>.
+    </p>
+
+    <h2>Practice</h2>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Yes. OVER annotates; every source row is still there until you filter rn."
+         data-no="GROUP BY collapses. A window keeps rows and adds a number.">
+      <h3>Q1. ROW_NUMBER() OVER (…) in the SELECT list does what to row count?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Keeps every source row intact</button></li>
+        <li><button type="button" class="choice" data-i="1">Collapses rows into one group</button></li>
+        <li><button type="button" class="choice" data-i="2">Drops groups after they exist</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Right. No PARTITION BY → one partition, the whole table, one rn = 1."
+         data-no="PARTITION BY customer_id would reset per customer. Date is not the grain here.">
+      <h3>Q2. You omit PARTITION BY and keep rn = 1. How many rows?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">One numbering for whole table</button></li>
+        <li><button type="button" class="choice" data-i="1">One numbering per customer id</button></li>
+        <li><button type="button" class="choice" data-i="2">One numbering per event date</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Correct. Windows run after WHERE (lesson 0003). Wrap, then filter."
+         data-no="The window is not visible in WHERE. Joins and ORDER BY are a different layer.">
+      <h3>Q3. Why does WHERE rn = 1 fail on the same SELECT?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Window not ready in WHERE</button></li>
+        <li><button type="button" class="choice" data-i="1">Window runs before all joins</button></li>
+        <li><button type="button" class="choice" data-i="2">Window cannot use ORDER BY</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Yes. MAX(updated_at) then join keeps every row that shares that timestamp."
+         data-no="The join does not drop ties. That is why ROW_NUMBER plus a unique ORDER BY exists.">
+      <h3>Q4. MAX(updated_at) join-back on customer 10 returns?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Tie timestamps keep extra rows</button></li>
+        <li><button type="button" class="choice" data-i="1">Tie timestamps drop extra rows</button></li>
+        <li><button type="button" class="choice" data-i="2">Tie timestamps swap extra rows</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Portable habit: CTE/subquery + WHERE rn = 1. QUALIFY is Redshift / Spark 3.4+ only."
+         data-no="Aurora has no QUALIFY. DISTINCT does not pick a latest version.">
+      <h3>Q5. First write that works on Aurora and Glue 4?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">CTE then filter row number</button></li>
+        <li><button type="button" class="choice" data-i="1">QUALIFY then skip the CTE</button></li>
+        <li><button type="button" class="choice" data-i="2">DISTINCT then skip the sort</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <h2>Primary source (read ~15 min)</h2>
+    <p>
+      <a href="https://www.postgresql.org/docs/current/tutorial-window.html">PostgreSQL — Window Functions</a>
+      (keep-rows vs collapse, <code>PARTITION BY</code>, subquery filter).
+      Then the short QUALIFY page:
+      <a href="https://modern-sql.com/caniuse/qualify">modern-sql.com/caniuse/qualify</a>.
+    </p>
+
+    <h2>Done when</h2>
+    <ul>
+      <li>You can say why <code>GROUP BY</code> cannot return “the current row’s other columns”</li>
+      <li>You write <code>PARTITION BY</code> = wanted grain, <code>ORDER BY</code> = winner + unique tiebreaker</li>
+      <li>You filter <code>rn = 1</code> <em>after</em> the window (CTE, or QUALIFY where it exists)</li>
+    </ul>
+
+    <footer class="site">
+      <p><strong>Ask follow-ups.</strong> Paste a “latest per X” query from work — we name the grain, the tie, and whether QUALIFY is legal on that engine.</p>
+      <p>No new SQLite drill yet. Re-run <code>python3 drills/drill-integrated.py</code> if grain is rusty; then come back here.</p>
+      <ul>
+        <li><a href="0007-join-skew-one-worker.html">← Lesson 0007 (join skew)</a></li>
+        <li><a href="0001-join-fanout-wrong-results.html">Lesson 0001 (grain / fan-out)</a></li>
+        <li><a href="0003-logical-processing-order.html">Lesson 0003 (logical order)</a></li>
+        <li><a href="../reference/latest-per-key.html">Latest-per-key card</a></li>
+        <li><a href="../reference/glossary.html#window-function">Glossary: window</a> ·
+            <a href="../reference/glossary.html#row-number">row_number</a> ·
+            <a href="../reference/glossary.html#qualify">QUALIFY</a></li>
+        <li><a href="../MISSION.md">Mission</a></li>
+        <li><a href="../RESOURCES.md">Resources</a></li>
+      </ul>
+    </footer>
+  </div>
+</body>
+</html>

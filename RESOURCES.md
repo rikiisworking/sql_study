@@ -54,6 +54,18 @@
   `skew_rows` = max-slice rows / min-slice rows. Use for: quick table skew number.
 - [Amazon Redshift — Using SVL_QUERY_REPORT](https://docs.aws.amazon.com/redshift/latest/dg/using-SVL-Query-Report.html)
   Per-slice rows and elapsed time. Use for: query skew after a run.
+- [PostgreSQL — 3.5. Window Functions](https://www.postgresql.org/docs/current/tutorial-window.html)
+  Official intro: windows keep row identity; `PARTITION BY`; filter via subquery. Use for: lesson 0008 and Aurora PG.
+- [PostgreSQL — 9.22. Window Functions](https://www.postgresql.org/docs/current/functions-window.html)
+  `row_number` / `rank` / `dense_rank` definitions and peer groups. Use for: ties vs exactly-one-row.
+- [Modern SQL — QUALIFY](https://modern-sql.com/caniuse/qualify)
+  Portable vs vendor `QUALIFY`; standard status. Use for: when the CTE wrap is required.
+- [Amazon Redshift — ROW_NUMBER](https://docs.aws.amazon.com/redshift/latest/dg/r_WF_ROW_NUMBER.html)
+  Official: peers get different numbers, order nondeterministic. Use for: tiebreaker habit.
+- [Amazon Redshift — QUALIFY](https://docs.aws.amazon.com/redshift/latest/dg/r_QUALIFY_clause.html)
+  Filter window results without a subquery. Use for: Redshift-only sugar of lesson 0008.
+- [AWS Glue versions](https://docs.aws.amazon.com/glue/latest/dg/release-notes.html)
+  Glue 4.0 = Spark 3.3; Glue 5.0 = Spark 3.5. Use for: whether Spark `QUALIFY` (3.4+) is available.
 
 
 

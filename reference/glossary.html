@@ -87,10 +87,22 @@
       <dd>SQL truth values: <code>TRUE</code>, <code>FALSE</code>, <code>UNKNOWN</code>. <code>NULL</code> comparisons yield <code>UNKNOWN</code>; <code>WHERE</code> keeps only <code>TRUE</code>.</dd>
 
       <dt id="logical-order"><strong>Logical processing order</strong></dt>
-      <dd>The order clauses are bound / conceptually applied when building a result — not the order you type them. Typical map: <code>FROM</code>/<code>JOIN</code> → <code>WHERE</code> → <code>GROUP BY</code> → <code>HAVING</code> → <code>SELECT</code> → <code>DISTINCT</code> → <code>ORDER BY</code> → limit. Explains why SELECT aliases are invisible in <code>WHERE</code>.</dd>
+      <dd>The order clauses are bound / conceptually applied when building a result — not the order you type them. Typical map: <code>FROM</code>/<code>JOIN</code> → <code>WHERE</code> → <code>GROUP BY</code> → <code>HAVING</code> → <code>SELECT</code> (windows here) → <code>DISTINCT</code> → <code>ORDER BY</code> → limit. Explains why SELECT aliases and window results are invisible in <code>WHERE</code>. <code>QUALIFY</code>, where it exists, is the filter that sees the window.</dd>
 
       <dt id="having"><strong>HAVING</strong></dt>
       <dd>Filter on <em>groups</em> after <code>GROUP BY</code>. Can use aggregates. Contrast <code>WHERE</code>, which filters rows before grouping.</dd>
+
+      <dt id="window-function"><strong>Window function</strong></dt>
+      <dd>A calculation over related rows that <em>keeps every row</em> (unlike <code>GROUP BY</code>, which collapses). Requires <code>OVER (…)</code>. See lesson 0008 and <a href="latest-per-key.html">latest-per-key</a>.</dd>
+
+      <dt id="partition-by"><strong>PARTITION BY</strong> (window)</dt>
+      <dd>Inside <code>OVER</code>: reset the window for each distinct value of these expressions. That is the grain you want out after you keep <code>rn = 1</code>. Omit it and the whole result is one partition.</dd>
+
+      <dt id="row-number"><strong>ROW_NUMBER</strong></dt>
+      <dd>Window that assigns 1, 2, 3… inside a partition, in <code>OVER (ORDER BY …)</code> order. Always unique inside the partition. Peers (tied <code>ORDER BY</code>) get different numbers in unspecified order — add a unique tiebreaker. Contrast <code>RANK</code>, which gives the same number to peers.</dd>
+
+      <dt id="qualify"><strong>QUALIFY</strong></dt>
+      <dd>Filter after window functions, the way <code>HAVING</code> filters after aggregates. Not in today’s SQL standard; Redshift and Spark 3.4+ (Glue 5.x) have it. Aurora and Glue 4 do not — wrap the window in a CTE/subquery and use <code>WHERE</code>.</dd>
     </dl>
 
     <footer class="site">

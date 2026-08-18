@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Latest row per key — SQL Study</title>
+  <link rel="stylesheet" href="../assets/lesson.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <p class="kicker">Reference</p>
+      <h1>Latest row per key</h1>
+      <p class="lead">
+        One current version of an entity. Use with
+        <a href="../lessons/0008-latest-row-per-key.html">lesson 0008</a>.
+      </p>
+    </header>
+
+    <h2>Portable (default)</h2>
+    <pre><code>WITH ranked AS (
+  SELECT
+    t.*,
+    ROW_NUMBER() OVER (
+      PARTITION BY customer_id
+      ORDER BY updated_at DESC, event_id DESC
+    ) AS rn
+  FROM events t
+)
+SELECT *   -- drop rn in the real SELECT list
+FROM ranked
+WHERE rn = 1;</code></pre>
+    <ul>
+      <li><code>PARTITION BY</code> = grain you want out (one row per these columns)</li>
+      <li><code>ORDER BY</code> = who wins, then a unique tiebreaker</li>
+      <li>Filter <code>rn = 1</code> in an outer query — not in the same <code>WHERE</code></li>
+    </ul>
+
+    <h2>QUALIFY (when the engine has it)</h2>
+    <pre><code>SELECT *
+FROM events
+QUALIFY ROW_NUMBER() OVER (
+  PARTITION BY customer_id
+  ORDER BY updated_at DESC, event_id DESC
+) = 1;</code></pre>
+    <table>
+      <thead>
+        <tr><th>Engine</th><th>QUALIFY</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Redshift</td><td>Yes</td></tr>
+        <tr><td>Spark 3.4+ / Glue 5.x</td><td>Yes</td></tr>
+        <tr><td>Glue 4.0 (Spark 3.3)</td><td>No</td></tr>
+        <tr><td>Aurora PG / MySQL</td><td>No</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Do not confuse</h2>
+    <table>
+      <thead>
+        <tr><th>Shape</th><th>Rows out</th><th>Ties</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>ROW_NUMBER</code> then <code>rn = 1</code></td>
+          <td>Exactly one per partition</td>
+          <td>Picks one; order among peers is nondeterministic unless you add a unique key</td>
+        </tr>
+        <tr>
+          <td><code>RANK</code> / <code>DENSE_RANK</code> then <code>= 1</code></td>
+          <td>All peers of the winner</td>
+          <td>Keeps every tied “first”</td>
+        </tr>
+        <tr>
+          <td><code>GROUP BY</code> + <code>MAX(ts)</code> join-back</td>
+          <td>All rows that share that max <code>ts</code></td>
+          <td>Same hole as <code>RANK = 1</code></td>
+        </tr>
+        <tr>
+          <td><code>GROUP BY</code> key only</td>
+          <td>One row, but only grouped columns + aggregates</td>
+          <td>Cannot legally return “the other columns of the winning row”</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Logical slot</h2>
+    <p>
+      Window after <code>WHERE</code> / <code>GROUP BY</code> / <code>HAVING</code>,
+      in <code>SELECT</code>.
+      <a href="../lessons/0003-logical-processing-order.html">Lesson 0003</a>.
+      <code>QUALIFY</code> is the filter that sees the window.
+    </p>
+
+    <footer class="site">
+      <p>
+        <a href="https://www.postgresql.org/docs/current/tutorial-window.html">PG window tutorial</a>
+        ·
+        <a href="https://modern-sql.com/caniuse/qualify">QUALIFY support</a>
+        ·
+        <a href="glossary.html#window-function">Glossary</a>
+      </p>
+    </footer>
+  </div>
+</body>
+</html>
