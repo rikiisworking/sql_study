@@ -6,7 +6,7 @@ Started ~2026-08-17. Full why: [MISSION.md](MISSION.md).
 
 ## Progress
 
-Last updated **2026-08-17**. Current lesson: **0007 (join skew)** — delivered; still needs a retrieval pass (quiz / live metric).
+Last updated **2026-08-18**. Current lesson: **0008 (latest row per key)** — delivered; still needs a retrieval pass.
 
 | # | Lesson | Status |
 |---|---|---|
@@ -17,8 +17,9 @@ Last updated **2026-08-17**. Current lesson: **0007 (join skew)** — delivered;
 | 0005 | [EXPLAIN plan basics](lessons/0005-explain-plan-basics.html) | Done (habits: plain EXPLAIN first) |
 | 0006 | [Data movement (dist / sort / shuffle)](lessons/0006-data-movement-dist-shuffle.html) | Done (vocab Q&A) |
 | 0007 | [Join skew — one worker hog](lessons/0007-join-skew-one-worker.html) | Lesson up; retrieval not locked |
+| 0008 | [Latest row per key](lessons/0008-latest-row-per-key.html) | Lesson up; retrieval not locked |
 
-**Next:** a real work `EXPLAIN` (engine labeled) or Aurora dialect once MySQL vs PostgreSQL is known.
+**Next:** a real work `EXPLAIN` (engine labeled), Aurora dialect once MySQL vs PostgreSQL is known, or window frames (LAG / running) if the day job needs them.
 
 Open questions and path notes live in [NOTES.md](NOTES.md). Insights that change what to study next: [learning-records/](learning-records/).
 
@@ -31,6 +32,7 @@ Open a lesson HTML in a browser (quizzes are in-page). Pocket cards when you for
 - [Predicate rewrite](reference/predicate-rewrite.html)
 - [Skew signals](reference/skew-signals.html)
 - [Dist-style pictures](reference/dist-style.html)
+- [Latest row per key](reference/latest-per-key.html)
 
 Trusted links: [RESOURCES.md](RESOURCES.md).
 
