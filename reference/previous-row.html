@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Previous row — SQL Study</title>
+  <link rel="stylesheet" href="../assets/lesson.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <p class="kicker">Reference</p>
+      <h1>Previous row per key</h1>
+      <p class="lead">
+        Attach the last version. Use with
+        <a href="../lessons/0009-previous-row-lag.html">lesson 0009</a>.
+        Pair with
+        <a href="latest-per-key.html">latest-per-key</a>.
+      </p>
+    </header>
+
+    <h2>Portable</h2>
+    <pre><code>SELECT
+  t.*,
+  LAG(status) OVER (
+    PARTITION BY customer_id
+    ORDER BY updated_at ASC, event_id ASC
+  ) AS prev_status
+FROM events t;</code></pre>
+    <ul>
+      <li><code>PARTITION BY</code> = entity whose history you walk</li>
+      <li><code>ORDER BY</code> = time forward, then a unique tiebreaker</li>
+      <li>First row in each partition: <code>LAG</code> is <code>NULL</code> (no earlier row)</li>
+      <li><code>LEAD</code> is the same idea looking forward</li>
+    </ul>
+
+    <h2>Flips (exclude “no previous”)</h2>
+    <pre><code>WITH lined AS (
+  SELECT
+    t.*,
+    LAG(status) OVER (
+      PARTITION BY customer_id
+      ORDER BY updated_at ASC, event_id ASC
+    ) AS prev_status
+  FROM events t
+)
+SELECT *
+FROM lined
+WHERE prev_status IS NOT NULL
+  AND status &lt;&gt; prev_status;</code></pre>
+    <p>
+      Bare <code>status &lt;&gt; prev_status</code> is
+      <strong>UNKNOWN</strong> when
+      <code>prev_status</code> is
+      <code>NULL</code> —
+      <code>WHERE</code> drops the row.
+      That is not a flip. See
+      <a href="../lessons/0002-null-three-valued-logic.html">lesson 0002</a>.
+    </p>
+
+    <h2>Do not confuse</h2>
+    <table>
+      <thead>
+        <tr><th>Shape</th><th>Use</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>LAG</code> + time <code>ASC</code></td>
+          <td>Previous version; keep every row</td>
+        </tr>
+        <tr>
+          <td><code>LEAD</code> + time <code>ASC</code></td>
+          <td>Next version</td>
+        </tr>
+        <tr>
+          <td><code>ROW_NUMBER</code> + time <code>DESC</code>, <code>rn = 1</code></td>
+          <td>One current row (lesson 0008)</td>
+        </tr>
+        <tr>
+          <td>Self-join on <code>MAX(earlier ts)</code></td>
+          <td>Wrong neighbor on timestamp ties; can fan out</td>
+        </tr>
+        <tr>
+          <td><code>SUM() OVER (ORDER BY …)</code></td>
+          <td>Running total — default <em>frame</em>, not LAG. Later, if needed.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Vendor notes</h2>
+    <ul>
+      <li>PG / Redshift / Spark: <code>LAG(value [, offset [, default]])</code>; offset default 1; default value default <code>NULL</code>.</li>
+      <li>Redshift: <code>OVER</code> for <code>LAG</code> cannot take a frame clause.</li>
+      <li>Redshift / Spark: optional <code>IGNORE NULLS</code>. PostgreSQL: always respect nulls (standard default).</li>
+    </ul>
+
+    <footer class="site">
+      <p>
+        <a href="https://www.postgresql.org/docs/current/functions-window.html">PG lag/lead</a>
+        ·
+        <a href="https://docs.aws.amazon.com/redshift/latest/dg/r_WF_LAG.html">Redshift LAG</a>
+        ·
+        <a href="glossary.html#lag">Glossary</a>
+      </p>
+    </footer>
+  </div>
+</body>
+</html>

@@ -33,6 +33,10 @@ python3 drills/drill-01-03.py --print l1_01
 python3 drills/drill-integrated.py
 python3 drills/drill-integrated.py int_01
 
+# lessons 0001–0009 stacked (shop + events; windows)
+python3 drills/drill-0001-0009.py
+python3 drills/drill-0001-0009.py sf_01
+
 # every drill-*.py (optional)
 python3 drills/check.py
 ```
@@ -50,8 +54,10 @@ python3 drills/check.py
 |------|------|
 | `seeds/seed.sql` | L1–L3 tables + data (do not change for normal practice) |
 | `drill-01-03.py` | L1–L3 — **return SQL from each function** |
-| `seeds/seed-integrated.sql` | Richer shop for the stacked drill |
+| `seeds/seed-integrated.sql` | Richer shop for the 0001–0006 stacked drill |
 | `drill-integrated.py` | Lessons 0001–0006 — **return SQL from each function** |
+| `seeds/seed-so-far.sql` | Shop + `events` versions for 0001–0009 |
+| `drill-0001-0009.py` | Lessons 0001–0009 — **return SQL from each function** |
 | `solutions/<case>.sql` | Solutions — do not open until stuck |
 | `check.py` | Engine (+ optional run-all) |
 
@@ -81,3 +87,18 @@ Same shop, extra rows + `order_date`. Qualifying = 2024 + paid + not cancelled.
 | `int_05_big_lines` | Logical order: filter expression, not `SELECT` alias |
 | `int_06_dist_not_index` | Recall: `DS_DIST_BOTH` → `DISTKEY`, not index |
 | `int_07_shrink_then_broadcast` | Recall: shrink dim before broadcast |
+
+## Case map (drill-0001-0009.py)
+
+Shop plus `events` (version history). Qualifying orders = 2024 + paid + not cancelled.
+
+| Case | Skills stacked |
+|------|----------------|
+| `sf_01_latest_row` | `ROW_NUMBER` + unique tiebreaker (0008) |
+| `sf_02_latest_in_2024` | Filter year *before* the window (0008 + 0003 + 0004) |
+| `sf_03_status_flips` | `LAG` + first-row NULL is not a flip (0009 + 0002) |
+| `sf_04_east_latest` | Latest then join dim — no event fan-out (0008 + 0001) |
+| `sf_05_repeat_flippers` | Flip count + `HAVING` (0009 + 0003) |
+| `sf_06_qualifying_revenue` | Order grain + `NOT EXISTS` + range (0001 + 0002 + 0004) |
+| `sf_07_skew_or_volume` | Recall: hog vs even volume (0007) |
+| `sf_08_dist_not_index` | Recall: `DS_DIST_BOTH` → `DISTKEY` (0006) |

@@ -128,6 +128,7 @@ def from_module(mod) -> list[dict]:
     if not seed_path.is_absolute():
         seed_path = ROOT / seed_path
     forbid_map = getattr(mod, "FORBID", {}) or {}
+    require_map = getattr(mod, "REQUIRE", {}) or {}
 
     found = []
     for name, fn in inspect.getmembers(mod, inspect.isfunction):
@@ -155,6 +156,7 @@ def from_module(mod) -> list[dict]:
                 "prompt": inspect.getdoc(fn) or "",
                 "query": query,
                 "forbid": forbid_map.get(name) or getattr(fn, "forbid", None),
+                "require": require_map.get(name) or getattr(fn, "require", None),
                 "_seed": seed_path,
                 "_todo": todo or not query.strip(),
             }

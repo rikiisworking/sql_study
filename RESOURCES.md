@@ -66,6 +66,10 @@
   Filter window results without a subquery. Use for: Redshift-only sugar of lesson 0008.
 - [AWS Glue versions](https://docs.aws.amazon.com/glue/latest/dg/release-notes.html)
   Glue 4.0 = Spark 3.3; Glue 5.0 = Spark 3.5. Use for: whether Spark `QUALIFY` (3.4+) is available.
+- [Amazon Redshift — LAG](https://docs.aws.amazon.com/redshift/latest/dg/r_WF_LAG.html)
+  Offset-before-current-row; first row in the order is null; no frame clause. Use for: lesson 0009.
+- [Spark SQL — Window Functions](https://spark.apache.org/docs/latest/sql-ref-syntax-qry-select-window.html)
+  `LAG` / `LEAD` as analytic functions; optional `IGNORE NULLS`. Use for: Glue/Spark look-back syntax.
 
 
 

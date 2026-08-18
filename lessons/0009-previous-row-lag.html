@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lesson 0009 — Previous row with LAG</title>
+  <link rel="stylesheet" href="../assets/lesson.css" />
+  <script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+  <div class="wrap">
+    <header class="site">
+      <p class="kicker">Lesson 0009 · Write the previous row</p>
+      <h1>What was this key last time?</h1>
+      <p class="lead">
+        Lesson
+        <a href="0008-latest-row-per-key.html">0008</a>
+        keeps one current version.
+        Day-job next: “did status flip?”, “qty vs last event.”
+        Same window machinery — look
+        <em>backward</em> one row, keep every row.
+      </p>
+    </header>
+
+    <p>
+      Mission: write SQL that matches the question.
+      The question here is “for each event, attach that
+      customer’s previous status, then name who flipped.”
+    </p>
+
+    <h2>Skill for this lesson</h2>
+    <p>
+      Write
+      <a href="../reference/glossary.html#lag"><code>LAG</code></a>
+      with the same
+      <a href="../reference/glossary.html#partition-by"><code>PARTITION BY</code></a>
+      grain as 0008, but
+      <code>ORDER BY</code> <em>forward in time</em> plus a unique
+      tiebreaker — then treat the first row’s
+      <code>NULL</code> as “no previous,” not as a value
+      (<a href="0002-null-three-valued-logic.html">lesson 0002</a>).
+    </p>
+
+    <h2>Tiny dataset</h2>
+    <p>Same <code>events</code> as 0008. Grain today: <strong>one row per event</strong>.</p>
+    <table>
+      <thead>
+        <tr><th>customer_id</th><th>event_id</th><th>updated_at</th><th>status</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>10</td><td>1</td><td>2024-01-01</td><td>new</td></tr>
+        <tr><td>10</td><td>2</td><td>2024-06-01</td><td>active</td></tr>
+        <tr><td>10</td><td>3</td><td>2024-06-01</td><td>closed</td></tr>
+        <tr><td>20</td><td>4</td><td>2024-03-01</td><td>new</td></tr>
+      </tbody>
+    </table>
+    <p>
+      Customer 10 still has two events on the same day.
+      “Previous date” is not enough to pick a neighbor.
+    </p>
+
+    <h2>LAG looks one row back</h2>
+    <p>
+      PostgreSQL: <code>lag(value [, offset [, default]])</code>
+      returns <code>value</code> from the row
+      <em>offset rows before</em> the current row
+      <em>in the partition</em>.
+      Omit extras → offset <code>1</code>, default <code>NULL</code>.
+    </p>
+    <p class="cite">
+      <a href="https://www.postgresql.org/docs/current/functions-window.html">PostgreSQL — 9.22. Window Functions</a>
+      ·
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/r_WF_LAG.html">Redshift — LAG</a>
+      ·
+      <a href="https://spark.apache.org/docs/latest/sql-ref-syntax-qry-select-window.html">Spark — Window Functions</a>
+    </p>
+    <pre><code>LAG(status) OVER (
+  PARTITION BY customer_id          -- reset here = same grain as 0008
+  ORDER BY updated_at ASC,
+           event_id   ASC           -- earlier wins; make it unique
+) AS prev_status</code></pre>
+    <p>
+      After this you still have <strong>four</strong> rows
+      (window ≠ <code>GROUP BY</code>):
+    </p>
+    <table>
+      <thead>
+        <tr><th>customer_id</th><th>event_id</th><th>status</th><th>prev_status</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>10</td><td>1</td><td>new</td><td><em>NULL</em></td></tr>
+        <tr><td>10</td><td>2</td><td>active</td><td>new</td></tr>
+        <tr><td>10</td><td>3</td><td>closed</td><td>active</td></tr>
+        <tr><td>20</td><td>4</td><td>new</td><td><em>NULL</em></td></tr>
+      </tbody>
+    </table>
+    <p>
+      Redshift’s own example: the first purchase in the
+      ordered partition has no earlier row, so
+      <code>LAG</code> is null there.
+    </p>
+    <div class="note">
+      <p>
+        <strong>Direction.</strong>
+        0008 used <code>ORDER BY … DESC</code> so
+        <code>rn = 1</code> is newest.
+        <code>LAG</code> means “the row
+        <em>before</em> me in this order.”
+        For “previous in time,” sort
+        <strong>ascending</strong> (oldest first), same unique
+        tiebreaker. Flip the sort and you attach the
+        <em>next</em> event instead —
+        that is <code>LEAD</code>.
+      </p>
+    </div>
+
+    <h2>Name the flip — watch the first-row NULL</h2>
+    <pre><code>WITH lined AS (
+  SELECT
+    customer_id, event_id, updated_at, status,
+    LAG(status) OVER (
+      PARTITION BY customer_id
+      ORDER BY updated_at ASC, event_id ASC
+    ) AS prev_status
+  FROM events
+)
+SELECT customer_id, event_id, prev_status, status
+FROM lined
+WHERE prev_status IS NOT NULL
+  AND status &lt;&gt; prev_status;</code></pre>
+    <p>
+      Result: event 2 (<code>new → active</code>) and
+      event 3 (<code>active → closed</code>).
+      Customer 20 never had a previous row.
+    </p>
+    <p>
+      <code>WHERE status &lt;&gt; prev_status</code>
+      <em>without</em> the
+      <code>IS NOT NULL</code> test fails
+      <a href="../reference/glossary.html#3vl">3VL</a>:
+      <code>'new' &lt;&gt; NULL</code> is
+      <strong>UNKNOWN</strong>, and
+      <code>WHERE</code> keeps only
+      <strong>TRUE</strong> — first rows vanish
+      <em>and you might think that is the flip filter working</em>.
+      It is not. You dropped “no previous.”
+    </p>
+    <p class="cite">
+      Same 3VL rule as
+      <a href="0002-null-three-valued-logic.html">lesson 0002</a>
+      /
+      <a href="https://modern-sql.com/concept/three-valued-logic">Modern SQL — Three-Valued Logic</a>.
+    </p>
+
+    <h2>Do not self-join to “max earlier timestamp”</h2>
+    <pre><code>SELECT e.*, p.status AS prev_status
+FROM events e
+LEFT JOIN events p
+  ON  p.customer_id = e.customer_id
+  AND p.updated_at  = (
+        SELECT MAX(x.updated_at)
+        FROM events x
+        WHERE x.customer_id = e.customer_id
+          AND x.updated_at  &lt; e.updated_at
+      );</code></pre>
+    <p>
+      Events 2 and 3 share a date, so event 3’s
+      “max earlier date” is 2024-01-01 — it skips
+      event 2. Same-day ties pick the wrong neighbor
+      (or
+      <a href="../reference/glossary.html#fan-out">fan out</a>
+      if two rows share that max).
+      <code>LAG</code> plus a unique
+      <code>ORDER BY</code> does not have that hole.
+    </p>
+
+    <div class="note">
+      <p>
+        <strong>Not a frame lesson.</strong>
+        Redshift: <code>LAG</code>’s
+        <code>OVER</code> must not contain a
+        <code>ROWS</code> / <code>RANGE</code> frame.
+        Running <code>SUM() OVER (ORDER BY …)</code>
+        <em>does</em> use the default frame
+        (start of partition through current peers) —
+        that is a later skill, only if the day job needs it.
+      </p>
+      <p class="cite">
+        <a href="https://docs.aws.amazon.com/redshift/latest/dg/r_WF_LAG.html">Redshift LAG (no frame)</a>
+        ·
+        <a href="https://www.postgresql.org/docs/current/tutorial-window.html">PG tutorial (default frame / running sum)</a>
+      </p>
+    </div>
+
+    <p>
+      Pocket card:
+      <a href="../reference/previous-row.html">previous-row</a>.
+    </p>
+
+    <h2>Practice</h2>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Yes. LAG annotates; every source row is still there, first ones just have NULL."
+         data-no="GROUP BY collapses. A window keeps rows and adds a look-back.">
+      <h3>Q1. LAG(status) OVER (…) in the SELECT list does what to row count?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Keeps every source row intact</button></li>
+        <li><button type="button" class="choice" data-i="1">Collapses rows into one group</button></li>
+        <li><button type="button" class="choice" data-i="2">Drops groups after they exist</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="PG and Redshift: no earlier row in the partition → default, which is NULL unless you pass one."
+         data-no="LAG does not copy this row or jump forward. That forward look is LEAD.">
+      <h3>Q2. First row in a partition: LAG(status) returns?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Null: no earlier row exists</button></li>
+        <li><button type="button" class="choice" data-i="1">Self: this row is returned</button></li>
+        <li><button type="button" class="choice" data-i="2">Next: later row is returned</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="LAG means “the row before me in this ORDER BY.” Previous-in-time needs ASC plus a unique key."
+         data-no="DESC is the 0008 latest-row sort. Omit ORDER BY and “previous” is undefined.">
+      <h3>Q3. ORDER BY for “previous in calendar time”?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Time ascending plus unique key</button></li>
+        <li><button type="button" class="choice" data-i="1">Time descending plus unique key</button></li>
+        <li><button type="button" class="choice" data-i="2">Time unordered plus unique key</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Correct. 'new' <> NULL is UNKNOWN. WHERE keeps only TRUE, so the first row disappears."
+         data-no="Lesson 0002: NULL comparisons are UNKNOWN. That is not a real flip test.">
+      <h3>Q4. WHERE status &lt;&gt; prev_status on a first row?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Comparison is UNKNOWN so row gone</button></li>
+        <li><button type="button" class="choice" data-i="1">Comparison is TRUE so row kept</button></li>
+        <li><button type="button" class="choice" data-i="2">Comparison is FALSE so row gone</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <div class="quiz"
+         data-answer="0"
+         data-ok="Yes. A max-earlier-timestamp join skips same-day neighbors or fans out on ties."
+         data-no="The join is not a unique-order look-back. That is why LAG plus a tiebreaker exists.">
+      <h3>Q5. Self-join on MAX(earlier updated_at) for customer 10?</h3>
+      <ul class="choices">
+        <li><button type="button" class="choice" data-i="0">Same-day ties pick a wrong neighbor</button></li>
+        <li><button type="button" class="choice" data-i="1">Same-day ties pick the true neighbor</button></li>
+        <li><button type="button" class="choice" data-i="2">Same-day ties drop every neighbor</button></li>
+      </ul>
+      <p class="feedback" hidden></p>
+    </div>
+
+    <h2>Primary source (read ~10 min)</h2>
+    <p>
+      <a href="https://www.postgresql.org/docs/current/functions-window.html">PostgreSQL — 9.22. Window Functions</a>
+      (<code>lag</code> / <code>lead</code> signatures; default <code>NULL</code>).
+      Then Redshift’s worked example:
+      <a href="https://docs.aws.amazon.com/redshift/latest/dg/r_WF_LAG.html">LAG window function</a>
+      (first row in the order is null).
+    </p>
+
+    <h2>Done when</h2>
+    <ul>
+      <li>You write <code>PARTITION BY</code> = entity, <code>ORDER BY</code> = time ASC + unique tiebreaker</li>
+      <li>You can say why the first <code>LAG</code> in a partition is <code>NULL</code></li>
+      <li>You do not filter flips with bare <code>&lt;&gt;</code> against that <code>NULL</code></li>
+    </ul>
+
+    <footer class="site">
+      <p><strong>Ask follow-ups.</strong> Paste a “vs last version” query from work — we name the grain, the sort, and whether the first-row NULL is a birth or a bug.</p>
+      <p>Practice: <code>python3 drills/drill-0001-0009.py sf_03</code> (and <code>sf_05</code>).</p>
+      <ul>
+        <li><a href="0008-latest-row-per-key.html">← Lesson 0008 (latest row)</a></li>
+        <li><a href="0002-null-three-valued-logic.html">Lesson 0002 (3VL)</a></li>
+        <li><a href="../reference/previous-row.html">Previous-row card</a></li>
+        <li><a href="../reference/latest-per-key.html">Latest-per-key card</a></li>
+        <li><a href="../reference/glossary.html#lag">Glossary: LAG</a> ·
+            <a href="../reference/glossary.html#window-function">window</a></li>
+        <li><a href="../MISSION.md">Mission</a></li>
+        <li><a href="../RESOURCES.md">Resources</a></li>
+      </ul>
+    </footer>
+  </div>
+</body>
+</html>

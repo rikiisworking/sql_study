@@ -6,7 +6,7 @@ Started ~2026-08-17. Full why: [MISSION.md](MISSION.md).
 
 ## Progress
 
-Last updated **2026-08-18**. Current lesson: **0008 (latest row per key)** — delivered; still needs a retrieval pass.
+Last updated **2026-08-18**. Current lesson: **0009 (previous row / LAG)** — delivered; still needs a retrieval pass.
 
 | # | Lesson | Status |
 |---|---|---|
@@ -18,8 +18,9 @@ Last updated **2026-08-18**. Current lesson: **0008 (latest row per key)** — d
 | 0006 | [Data movement (dist / sort / shuffle)](lessons/0006-data-movement-dist-shuffle.html) | Done (vocab Q&A) |
 | 0007 | [Join skew — one worker hog](lessons/0007-join-skew-one-worker.html) | Lesson up; retrieval not locked |
 | 0008 | [Latest row per key](lessons/0008-latest-row-per-key.html) | Lesson up; retrieval not locked |
+| 0009 | [Previous row with LAG](lessons/0009-previous-row-lag.html) | Lesson up; retrieval not locked |
 
-**Next:** a real work `EXPLAIN` (engine labeled), Aurora dialect once MySQL vs PostgreSQL is known, or window frames (LAG / running) if the day job needs them.
+**Next:** a real work `EXPLAIN` (engine labeled), Aurora dialect once MySQL vs PostgreSQL is known, or running window frames if the day job needs them.
 
 Open questions and path notes live in [NOTES.md](NOTES.md). Insights that change what to study next: [learning-records/](learning-records/).
 
@@ -33,6 +34,7 @@ Open a lesson HTML in a browser (quizzes are in-page). Pocket cards when you for
 - [Skew signals](reference/skew-signals.html)
 - [Dist-style pictures](reference/dist-style.html)
 - [Latest row per key](reference/latest-per-key.html)
+- [Previous row](reference/previous-row.html)
 
 Trusted links: [RESOURCES.md](RESOURCES.md).
 
@@ -43,6 +45,7 @@ SQLite, from repo root (see [drills/README.md](drills/README.md)):
 ```bash
 python3 drills/drill-01-03.py          # lessons 0001–0003
 python3 drills/drill-integrated.py     # stacked 0001–0006
+python3 drills/drill-0001-0009.py      # stacked 0001–0009 (windows + shop)
 ```
 
-Layout/skew (0006–0007) have no SQLite oracle — those are engine physics; use a plan or Spark UI / `skew_rows`.
+Layout/skew (0006–0007) have no SQLite oracle — those are engine physics; use a plan or Spark UI / `skew_rows`. The 0001–0009 file has one-word recall cases for that.

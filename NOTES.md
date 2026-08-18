@@ -27,7 +27,8 @@
 6. Data movement: Redshift dist/sort; Spark broadcast vs shuffle — lesson 0006 ✓ (vocab Q&A; see LR-0008)
 7. Join skew (one worker hog vs even volume) — lesson 0007 ✓ (await retrieval evidence)
 8. Latest / current row per key (`ROW_NUMBER` + tiebreaker) — lesson 0008 ✓ (await retrieval evidence)
-9. Next candidates: live work EXPLAIN walkthrough · Aurora dialect EXPLAIN · window frames (LAG / running) only if day-job needs them
+9. Previous row / change detect (`LAG` + first-row NULL) — lesson 0009 ✓ (await retrieval evidence)
+10. Next candidates: live work EXPLAIN walkthrough · Aurora dialect EXPLAIN · running window frames only if day-job needs them
 
 ## Open question
 - Aurora dialect: MySQL vs PostgreSQL — still unknown; deep vendor EXPLAIN after known.
@@ -49,5 +50,6 @@
 - `python3 drills/drill-01-03.py <case>` — one case
 - `python3 drills/drill-01-03.py --print <case>` — see result, no oracle
 - `python3 drills/drill-integrated.py` — 0001–0006 stacked; functions + docstring mission (pyspark exercise shape)
+- `python3 drills/drill-0001-0009.py` — 0001–0009 stacked (events + shop); windows + HAVING + recall
 - Later isolated lessons: `python3 drills/drill-04.py` (one file per lesson) if needed
 

@@ -103,6 +103,9 @@
 
       <dt id="qualify"><strong>QUALIFY</strong></dt>
       <dd>Filter after window functions, the way <code>HAVING</code> filters after aggregates. Not in today’s SQL standard; Redshift and Spark 3.4+ (Glue 5.x) have it. Aurora and Glue 4 do not — wrap the window in a CTE/subquery and use <code>WHERE</code>.</dd>
+
+      <dt id="lag"><strong>LAG</strong></dt>
+      <dd>Window that returns a column from the row <em>offset</em> rows <em>before</em> the current row in the partition (<code>ORDER BY</code> defines “before”). Offset defaults to 1; missing earlier row returns <code>NULL</code> (or an explicit default). <code>LEAD</code> looks forward. See lesson 0009 and <a href="previous-row.html">previous-row</a>.</dd>
     </dl>
 
     <footer class="site">
